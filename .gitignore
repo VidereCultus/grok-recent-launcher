@@ -1,0 +1,12 @@
+# Local machine state — never commit
+config.json
+last-error.log
+debug.log
+debug.err.log
+*.lnk
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+ehthumbs.db

@@ -1,0 +1,29 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  parse:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -LiteralPath . -Filter *.ps1 | ForEach-Object {
+            $errs = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$null, [ref]$errs)
+            if ($errs -and $errs.Count -gt 0) {
+              $failed = $true
+              Write-Host ("FAIL {0}" -f $_.Name)
+              $errs | ForEach-Object { Write-Host $_ }
+            } else {
+              Write-Host ("OK   {0}" -f $_.Name)
+            }
+          }
+          if ($failed) { exit 1 }
