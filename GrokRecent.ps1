@@ -12,7 +12,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.0.0'
+$script:AppVersion = '1.1.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -430,27 +430,45 @@ public static class NativeDpi {
 '@
         [NativeDpi]::SetProcessDPIAware() | Out-Null
     } catch { }
+    try {
+        Add-Type -ReferencedAssemblies @('System.Windows.Forms.dll') -TypeDefinition @'
+using System.Reflection;
+using System.Windows.Forms;
+public static class UiUtil {
+  public static void EnableDoubleBuffer(Control c) {
+    typeof(Control).InvokeMember("DoubleBuffered",
+      BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
+      null, c, new object[] { true });
+  }
+}
+'@
+    } catch { }
 
     $script:config = Read-LauncherConfig
     $script:allProjects = @()
 
-    $bg = [System.Drawing.Color]::FromArgb(16, 16, 14)
-    $panel = [System.Drawing.Color]::FromArgb(24, 23, 20)
-    $line = [System.Drawing.Color]::FromArgb(46, 42, 36)
-    $text = [System.Drawing.Color]::FromArgb(236, 230, 218)
-    $muted = [System.Drawing.Color]::FromArgb(132, 126, 114)
-    $accent = [System.Drawing.Color]::FromArgb(201, 148, 62)
-    $select = [System.Drawing.Color]::FromArgb(64, 48, 24)
-    $danger = [System.Drawing.Color]::FromArgb(168, 92, 72)
+    $bg = [System.Drawing.Color]::FromArgb(14, 14, 12)
+    $panel = [System.Drawing.Color]::FromArgb(26, 24, 21)
+    $toolbarBg = [System.Drawing.Color]::FromArgb(20, 19, 17)
+    $line = [System.Drawing.Color]::FromArgb(52, 46, 38)
+    $text = [System.Drawing.Color]::FromArgb(240, 233, 220)
+    $muted = [System.Drawing.Color]::FromArgb(138, 130, 116)
+    $accent = [System.Drawing.Color]::FromArgb(212, 154, 64)
+    $accentHover = [System.Drawing.Color]::FromArgb(228, 174, 86)
+    $select = [System.Drawing.Color]::FromArgb(72, 52, 24)
+    $hover = [System.Drawing.Color]::FromArgb(36, 32, 26)
+    $danger = [System.Drawing.Color]::FromArgb(176, 96, 72)
+    $ink = [System.Drawing.Color]::FromArgb(28, 22, 12)
     $uiFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 9.5)
-    $titleFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 14, [System.Drawing.FontStyle]::Bold)
-    $smallFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 8.5)
+    $titleFont = New-Object System.Drawing.Font('Georgia', 18, [System.Drawing.FontStyle]::Bold)
+    $smallFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 8.25)
+    $rowFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 9.75)
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = ('Grok 最近项目  v{0}' -f $script:AppVersion)
+    $form.Text = 'Grok 最近项目'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object System.Drawing.Size(980, 620)
-    $form.MinimumSize = New-Object System.Drawing.Size(780, 460)
+    $form.Size = New-Object System.Drawing.Size(1020, 560)
+    $form.MinimumSize = New-Object System.Drawing.Size(860, 420)
     $form.BackColor = $bg
     $form.ForeColor = $text
     $form.Font = $uiFont
@@ -458,26 +476,51 @@ public static class NativeDpi {
     $form.ShowInTaskbar = $true
     $form.TopMost = $true
     $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
+    $form.Padding = New-Object System.Windows.Forms.Padding(0)
+    try {
+        $grokIco = Get-GrokExe
+        if ($grokIco) { $form.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($grokIco) }
+    } catch { }
+
+    $topStack = New-Object System.Windows.Forms.Panel
+    $topStack.Dock = 'Top'
+    $topStack.Height = 136
+    $topStack.BackColor = $bg
+    $form.Controls.Add($topStack)
 
     $header = New-Object System.Windows.Forms.Panel
-    $header.Dock = 'Top'
-    $header.Height = 86
+    $header.SetBounds(0, 0, 1020, 78)
+    $header.Anchor = 'Top,Left,Right'
     $header.BackColor = $bg
-    $form.Controls.Add($header)
+    $topStack.Controls.Add($header)
+
+    $accentBar = New-Object System.Windows.Forms.Panel
+    $accentBar.Height = 3
+    $accentBar.Dock = 'Top'
+    $accentBar.BackColor = $accent
+    $header.Controls.Add($accentBar)
 
     $title = New-Object System.Windows.Forms.Label
     $title.Text = '最近的 Grok 项目'
     $title.Font = $titleFont
     $title.ForeColor = $text
-    $title.Location = New-Object System.Drawing.Point(20, 12)
+    $title.Location = New-Object System.Drawing.Point(22, 14)
     $title.AutoSize = $true
     $header.Controls.Add($title)
 
+    $ver = New-Object System.Windows.Forms.Label
+    $ver.Text = ('v{0}' -f $script:AppVersion)
+    $ver.Font = $smallFont
+    $ver.ForeColor = $muted
+    $ver.Location = New-Object System.Drawing.Point(250, 24)
+    $ver.AutoSize = $true
+    $header.Controls.Add($ver)
+
     $subtitle = New-Object System.Windows.Forms.Label
-    $subtitle.Text = '从会话记录找回目录。勾选多个后点「续上」，会在 Windows Terminal 里一次开出对应标签。'
+    $subtitle.Text = '从本机会话找回目录 · 多选后一次在 Windows Terminal 打开'
     $subtitle.Font = $smallFont
     $subtitle.ForeColor = $muted
-    $subtitle.Location = New-Object System.Drawing.Point(22, 44)
+    $subtitle.Location = New-Object System.Drawing.Point(24, 50)
     $subtitle.AutoSize = $true
     $header.Controls.Add($subtitle)
 
@@ -486,68 +529,95 @@ public static class NativeDpi {
     $btnAbout.FlatStyle = 'Flat'
     $btnAbout.FlatAppearance.BorderSize = 1
     $btnAbout.FlatAppearance.BorderColor = $line
+    $btnAbout.FlatAppearance.MouseOverBackColor = $hover
     $btnAbout.BackColor = $panel
     $btnAbout.ForeColor = $muted
-    $btnAbout.Width = 64
-    $btnAbout.Height = 26
+    $btnAbout.Width = 68
+    $btnAbout.Height = 28
     $btnAbout.Anchor = 'Top,Right'
     $btnAbout.Cursor = [System.Windows.Forms.Cursors]::Hand
     $header.Controls.Add($btnAbout)
 
+    $toolbar = New-Object System.Windows.Forms.Panel
+    $toolbar.SetBounds(0, 78, 1020, 58)
+    $toolbar.Anchor = 'Top,Left,Right'
+    $toolbar.BackColor = $toolbarBg
+    $topStack.Controls.Add($toolbar)
+
+    $searchHost = New-Object System.Windows.Forms.Panel
+    $searchHost.Location = New-Object System.Drawing.Point(22, 12)
+    $searchHost.Size = New-Object System.Drawing.Size(340, 34)
+    $searchHost.BackColor = $panel
+    $toolbar.Controls.Add($searchHost)
+
+    $searchMark = New-Object System.Windows.Forms.Label
+    $searchMark.Text = '⌕'
+    $searchMark.Font = New-Object System.Drawing.Font('Segoe UI Symbol', 11)
+    $searchMark.ForeColor = $muted
+    $searchMark.Location = New-Object System.Drawing.Point(8, 6)
+    $searchMark.AutoSize = $true
+    $searchHost.Controls.Add($searchMark)
+
     $search = New-Object System.Windows.Forms.TextBox
-    $search.BorderStyle = 'FixedSingle'
+    $search.BorderStyle = 'None'
     $search.BackColor = $panel
     $search.ForeColor = $text
-    $search.Location = New-Object System.Drawing.Point(24, 98)
-    $search.Width = 360
-    $search.Height = 28
-    $form.Controls.Add($search)
+    $search.Font = $rowFont
+    $search.Location = New-Object System.Drawing.Point(30, 8)
+    $search.Width = 300
+    $searchHost.Controls.Add($search)
     $script:search = $search
     $search.Add_HandleCreated({
-            [void][NativeDpi]::SendMessage($search.Handle, 0x1501, [IntPtr]1, '搜项目名、路径、摘要')
+            [void][NativeDpi]::SendMessage($search.Handle, 0x1501, [IntPtr]1, '搜索项目、路径或摘要')
         })
 
     $hideMissing = New-Object System.Windows.Forms.CheckBox
-    $hideMissing.Text = '隐藏失效目录'
+    $hideMissing.Text = '隐藏失效'
     $hideMissing.ForeColor = $muted
     $hideMissing.AutoSize = $true
-    $hideMissing.Location = New-Object System.Drawing.Point(400, 102)
+    $hideMissing.Location = New-Object System.Drawing.Point(376, 18)
     $hideMissing.Checked = [bool]$script:config.hideMissing
-    $form.Controls.Add($hideMissing)
+    $hideMissing.FlatStyle = 'Flat'
+    $toolbar.Controls.Add($hideMissing)
 
     function New-BarButton {
-        param([string]$Text, [int]$X, [System.Drawing.Color]$Back, [System.Drawing.Color]$Fore)
+        param(
+            [string]$Text,
+            [System.Drawing.Color]$Back,
+            [System.Drawing.Color]$Fore,
+            [int]$Width = 78,
+            [System.Drawing.Color]$HoverBack
+        )
         $b = New-Object System.Windows.Forms.Button
         $b.Text = $Text
         $b.FlatStyle = 'Flat'
         $b.FlatAppearance.BorderSize = 0
+        $b.FlatAppearance.MouseOverBackColor = $HoverBack
         $b.BackColor = $Back
         $b.ForeColor = $Fore
-        $b.Width = 76
-        $b.Height = 30
-        $b.Location = New-Object System.Drawing.Point($X, 96)
+        $b.Width = $Width
+        $b.Height = 34
+        $b.Font = $uiFont
         $b.Cursor = [System.Windows.Forms.Cursors]::Hand
-        $form.Controls.Add($b)
+        $toolbar.Controls.Add($b)
         return $b
     }
 
-    $btnContinue = New-BarButton '续上' 0 $accent ([System.Drawing.Color]::FromArgb(28, 22, 12))
-    $btnNew = New-BarButton '新开' 0 $panel $text
-    $btnTerm = New-BarButton '终端' 0 $panel $text
-    $btnFolder = New-BarButton '文件夹' 0 $panel $text
-    $btnRefresh = New-BarButton '刷新' 0 $panel $muted
-
+    $btnContinue = New-BarButton '续上' $accent $ink 86 $accentHover
+    $btnNew = New-BarButton '新开' $panel $text 72 $hover
+    $btnTerm = New-BarButton '终端' $panel $text 72 $hover
+    $btnFolder = New-BarButton '文件夹' $panel $text 80 $hover
+    $btnRefresh = New-BarButton '刷新' $panel $muted 72 $hover
     foreach ($b in @($btnNew, $btnTerm, $btnFolder, $btnRefresh)) {
         $b.FlatAppearance.BorderSize = 1
         $b.FlatAppearance.BorderColor = $line
     }
 
     $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Location = New-Object System.Drawing.Point(20, 140)
-    $grid.Anchor = 'Top,Bottom,Left,Right'
-    $grid.BackgroundColor = $panel
+    $grid.Dock = 'Fill'
+    $grid.BackgroundColor = $bg
     $grid.ForeColor = $text
-    $grid.GridColor = $line
+    $grid.GridColor = [System.Drawing.Color]::FromArgb(40, 36, 30)
     $grid.BorderStyle = 'None'
     $grid.CellBorderStyle = 'SingleHorizontal'
     $grid.ColumnHeadersBorderStyle = 'None'
@@ -560,64 +630,136 @@ public static class NativeDpi {
     $grid.MultiSelect = $true
     $grid.SelectionMode = 'FullRowSelect'
     $grid.AutoSizeColumnsMode = 'Fill'
-    $grid.RowTemplate.Height = 30
-    $grid.ColumnHeadersHeight = 32
+    $grid.RowTemplate.Height = 38
+    $grid.ColumnHeadersHeight = 34
     $grid.ColumnHeadersHeightSizeMode = 'DisableResizing'
+    $grid.ShowCellToolTips = $true
+    $pad = New-Object System.Windows.Forms.Padding(10, 6, 10, 6)
     $grid.DefaultCellStyle.BackColor = $panel
     $grid.DefaultCellStyle.ForeColor = $text
     $grid.DefaultCellStyle.SelectionBackColor = $select
     $grid.DefaultCellStyle.SelectionForeColor = $text
-    $grid.DefaultCellStyle.Font = $uiFont
-    $grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(20, 19, 17)
+    $grid.DefaultCellStyle.Font = $rowFont
+    $grid.DefaultCellStyle.Padding = $pad
+    $grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(22, 21, 18)
     $grid.AlternatingRowsDefaultCellStyle.ForeColor = $text
     $grid.AlternatingRowsDefaultCellStyle.SelectionBackColor = $select
     $grid.AlternatingRowsDefaultCellStyle.SelectionForeColor = $text
-    $grid.ColumnHeadersDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(28, 27, 24)
+    $grid.ColumnHeadersDefaultCellStyle.BackColor = $toolbarBg
     $grid.ColumnHeadersDefaultCellStyle.ForeColor = $muted
     $grid.ColumnHeadersDefaultCellStyle.Font = $smallFont
-    $grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::FromArgb(28, 27, 24)
+    $grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = $toolbarBg
+    $grid.ColumnHeadersDefaultCellStyle.Padding = New-Object System.Windows.Forms.Padding(10, 0, 8, 0)
+    $grid.ColumnHeadersDefaultCellStyle.WrapMode = [System.Windows.Forms.DataGridViewTriState]::False
     $form.Controls.Add($grid)
     $script:grid = $grid
+    try { [UiUtil]::EnableDoubleBuffer($grid) } catch { }
+    try { [UiUtil]::EnableDoubleBuffer($form) } catch { }
+
+    $statusHost = New-Object System.Windows.Forms.Panel
+    $statusHost.Dock = 'Bottom'
+    $statusHost.Height = 34
+    $statusHost.BackColor = $toolbarBg
+    $form.Controls.Add($statusHost)
+    $statusLine = New-Object System.Windows.Forms.Panel
+    $statusLine.Dock = 'Top'
+    $statusLine.Height = 1
+    $statusLine.BackColor = $line
+    $statusHost.Controls.Add($statusLine)
+    $status = New-Object System.Windows.Forms.Label
+    $status.Dock = 'Fill'
+    $status.ForeColor = $muted
+    $status.Font = $smallFont
+    $status.TextAlign = 'MiddleLeft'
+    $status.Padding = New-Object System.Windows.Forms.Padding(20, 0, 8, 0)
+    $status.Text = '双击续上  ·  Enter 打开  ·  Ctrl+A 全选  ·  Esc 关闭  ·  点 ★ 置顶'
+    $statusHost.Controls.Add($status)
 
     $empty = New-Object System.Windows.Forms.Label
-    $empty.Text = "还没有会话记录。`r`n在某个项目目录里运行过 grok 之后，就会出现在这里。`r`n本工具只读本机会话摘要，不会联网。"
+    $empty.Text = "还没有会话记录`r`n在某个项目目录运行过 grok 之后，就会出现在这里"
     $empty.TextAlign = 'MiddleCenter'
     $empty.ForeColor = $muted
-    $empty.BackColor = $panel
+    $empty.BackColor = $bg
     $empty.Font = $uiFont
     $empty.Visible = $false
     $form.Controls.Add($empty)
-    $empty.BringToFront()
-
-    $status = New-Object System.Windows.Forms.Label
-    $status.Dock = 'Bottom'
-    $status.Height = 28
-    $status.ForeColor = $muted
-    $status.Font = $smallFont
-    $status.Padding = New-Object System.Windows.Forms.Padding(20, 6, 8, 0)
-    $status.Text = '双击续上 · Enter 打开 · Ctrl+A 全选 · Esc 关闭 · 点 ★ 置顶'
-    $form.Controls.Add($status)
 
     function Layout-Buttons {
-        $btnAbout.Left = $header.ClientSize.Width - 84
-        $btnAbout.Top = 14
-        $right = $form.ClientSize.Width - 20
+        $btnAbout.Left = $header.ClientSize.Width - 90
+        $btnAbout.Top = 22
+        $right = $toolbar.ClientSize.Width - 18
         foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnNew, $btnContinue)) {
             $right -= $b.Width
             $b.Left = $right
+            $b.Top = 12
             $b.Anchor = 'Top,Right'
             $right -= 8
         }
-        $search.Width = [Math]::Max(220, $right - $search.Left - 160)
-        $hideMissing.Left = $search.Right + 12
-        $grid.Width = $form.ClientSize.Width - 40
-        $grid.Height = $form.ClientSize.Height - $grid.Top - $status.Height - 8
-        $empty.Location = $grid.Location
-        $empty.Size = $grid.Size
+        $hideMissing.Left = [Math]::Min(376, [Math]::Max(220, $right - 100))
+        $searchHost.Width = [Math]::Max(180, $hideMissing.Left - 36)
+        $search.Width = [Math]::Max(120, $searchHost.Width - 40)
+        $empty.Bounds = $grid.Bounds
+        $ver.Left = $title.Right + 10
+        $header.Width = $topStack.ClientSize.Width
+        $toolbar.Width = $topStack.ClientSize.Width
+        $toolbar.Top = $header.Height
+    }
+
+    function Fit-FormHeight {
+        $visibleCount = $grid.Rows.Count
+        $show = [Math]::Max(4, [Math]::Min(8, $visibleCount))
+        if ($visibleCount -eq 0) { $show = 5 }
+        $needed = $topStack.Height + $grid.ColumnHeadersHeight + ($show * $grid.RowTemplate.Height) + $statusHost.Height + 8
+        if ($needed -lt $form.MinimumSize.Height) { $needed = $form.MinimumSize.Height }
+        if ([Math]::Abs($form.Height - $needed) -gt 8) {
+            $form.Height = $needed
+        }
     }
 
     $form.Add_Resize({ Layout-Buttons })
     Layout-Buttons
+
+    $script:hoverRow = -1
+    $grid.Add_CellFormatting({
+            param($sender, $e)
+            if ($e.RowIndex -lt 0 -or $e.ColumnIndex -lt 0) { return }
+            $col = $grid.Columns[$e.ColumnIndex].Name
+            if ($col -eq 'Pin') {
+                if ([string]$e.Value -eq '★') { $e.CellStyle.ForeColor = $accent; $e.CellStyle.SelectionForeColor = $accent }
+                else { $e.CellStyle.ForeColor = $muted; $e.CellStyle.SelectionForeColor = $muted }
+            } elseif ($col -eq 'Path' -or $col -eq 'Ago') {
+                $e.CellStyle.ForeColor = $muted
+                $e.CellStyle.SelectionForeColor = $text
+            }
+        })
+    $grid.Add_CellPainting({
+            param($sender, $e)
+            if ($e.RowIndex -lt 0 -or $e.ColumnIndex -ne 0) { return }
+            if (-not $grid.Rows[$e.RowIndex].Selected) { return }
+            $e.PaintBackground($e.CellBounds, $true)
+            $e.PaintContent($e.ClipBounds)
+            $br = New-Object System.Drawing.SolidBrush $accent
+            $e.Graphics.FillRectangle($br, $e.CellBounds.X, $e.CellBounds.Y, 3, $e.CellBounds.Height)
+            $br.Dispose()
+            $e.Handled = $true
+        })
+    $grid.Add_CellMouseEnter({
+            param($sender, $e)
+            if ($e.RowIndex -lt 0) { return }
+            if ($script:hoverRow -ge 0 -and $script:hoverRow -ne $e.RowIndex -and $script:hoverRow -lt $grid.Rows.Count) {
+                $grid.Rows[$script:hoverRow].DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
+            }
+            $script:hoverRow = $e.RowIndex
+            if (-not $grid.Rows[$e.RowIndex].Selected) {
+                $grid.Rows[$e.RowIndex].DefaultCellStyle.BackColor = $hover
+            }
+        })
+    $grid.Add_MouseLeave({
+            if ($script:hoverRow -ge 0 -and $script:hoverRow -lt $grid.Rows.Count) {
+                $grid.Rows[$script:hoverRow].DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
+            }
+            $script:hoverRow = -1
+        })
 
     function Get-VisibleProjects {
         $q = $search.Text.Trim()
@@ -657,14 +799,22 @@ public static class NativeDpi {
             $cCount = $grid.Columns.Add('Sessions', '会话')
             $cTitle = $grid.Columns.Add('Title', '摘要')
             $cPath = $grid.Columns.Add('Path', '路径')
-            $grid.Columns[$cPin].FillWeight = 8
-            $grid.Columns[$cName].FillWeight = 22
-            $grid.Columns[$cAgo].FillWeight = 12
-            $grid.Columns[$cCount].FillWeight = 8
-            $grid.Columns[$cTitle].FillWeight = 28
-            $grid.Columns[$cPath].FillWeight = 22
-            $grid.Columns[$cPin].MinimumWidth = 36
-            $grid.Columns[$cCount].MinimumWidth = 48
+            $grid.Columns[$cPin].FillWeight = 6
+            $grid.Columns[$cName].FillWeight = 18
+            $grid.Columns[$cAgo].FillWeight = 11
+            $grid.Columns[$cCount].FillWeight = 7
+            $grid.Columns[$cTitle].FillWeight = 32
+            $grid.Columns[$cPath].FillWeight = 26
+            $grid.Columns[$cPin].MinimumWidth = 40
+            $grid.Columns[$cCount].AutoSizeMode = 'None'
+            $grid.Columns[$cCount].Width = 72
+            $grid.Columns[$cCount].MinimumWidth = 72
+            $grid.Columns[$cAgo].MinimumWidth = 88
+            $grid.Columns[$cPin].DefaultCellStyle.Alignment = 'MiddleCenter'
+            $grid.Columns[$cCount].DefaultCellStyle.Alignment = 'MiddleCenter'
+            $grid.Columns[$cAgo].DefaultCellStyle.Alignment = 'MiddleLeft'
+            $grid.Columns[$cPath].DefaultCellStyle.ForeColor = $muted
+            $grid.Columns[$cAgo].DefaultCellStyle.ForeColor = $muted
         }
 
         $visible = Get-VisibleProjects
@@ -686,11 +836,13 @@ public static class NativeDpi {
         }
 
         $empty.Visible = ($grid.Rows.Count -eq 0)
-        if ($empty.Visible) { $empty.BringToFront() }
+        if ($empty.Visible) { $empty.BringToFront() } else { $grid.BringToFront() }
 
         $pinCount = @($script:config.pins).Count
-        $status.Text = ('{0} 个项目 · 已选 {1} · 置顶 {2} · 双击续上 · Enter 打开 · Ctrl+A 全选 · Esc 关闭' -f `
+        $status.Text = ('{0} 个项目    已选 {1}    置顶 {2}      双击续上 · Enter 打开 · Ctrl+A 全选 · Esc 关闭 · ★ 置顶' -f `
                 $visible.Count, $grid.SelectedRows.Count, $pinCount)
+        Fit-FormHeight
+        Layout-Buttons
     }
 
     function Reload-Projects {
@@ -790,7 +942,7 @@ public static class NativeDpi {
 
     $grid.Add_SelectionChanged({
             $visibleCount = $grid.Rows.Count
-            $status.Text = ('{0} 个项目 · 已选 {1} · 置顶 {2} · 双击续上 · Enter 打开 · Ctrl+A 全选 · Esc 关闭' -f `
+            $status.Text = ('{0} 个项目    已选 {1}    置顶 {2}      双击续上 · Enter 打开 · Ctrl+A 全选 · Esc 关闭 · ★ 置顶' -f `
                     $visibleCount, $grid.SelectedRows.Count, @($script:config.pins).Count)
         })
 
