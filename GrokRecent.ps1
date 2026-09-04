@@ -4,6 +4,8 @@
 param(
     [switch]$ListOnly,
     [switch]$Version,
+    [switch]$Demo,
+    [switch]$Screenshot,
     [int]$Limit = 50
 )
 
@@ -15,6 +17,10 @@ if ($Version) {
     Write-Output $script:AppVersion
     exit 0
 }
+
+# Screenshot always uses fictional rows so real project paths never land in docs/.
+$script:DemoMode = [bool]($Demo -or $Screenshot)
+$script:ScreenshotMode = [bool]$Screenshot
 
 $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:DataDir = Join-Path $env:APPDATA 'GrokRecentLauncher'
@@ -110,6 +116,12 @@ function Sanitize-Title {
 }
 
 function Read-LauncherConfig {
+    if ($script:DemoMode) {
+        return [pscustomobject]@{
+            pins        = @('D:\Work\shop-web')
+            hideMissing = $true
+        }
+    }
     $cfg = [pscustomobject]@{
         pins        = @()
         hideMissing = $true
@@ -128,6 +140,7 @@ function Read-LauncherConfig {
 
 function Save-LauncherConfig {
     param($Config)
+    if ($script:DemoMode) { return }
     $payload = @{
         pins        = @($Config.pins)
         hideMissing = [bool]$Config.hideMissing
@@ -220,6 +233,31 @@ function Get-GrokRecentProjects {
         }
     }
     return $items
+}
+
+function Get-DemoProjects {
+    $now = [datetimeoffset]::Now
+    function New-DemoRow {
+        param($Path, $Title, $HoursAgo, $Sessions, $Exists)
+        $name = Split-Path $Path -Leaf
+        return [pscustomobject]@{
+            Path         = $Path
+            Name         = $name
+            Parent       = Split-Path $Path -Parent
+            LastActive   = $now.AddHours(-1 * $HoursAgo)
+            LastTitle    = $Title
+            SessionCount = $Sessions
+            Exists       = $Exists
+            Label        = $name
+        }
+    }
+    @(
+        (New-DemoRow 'D:\Work\shop-web' 'Empty state for the order list' 2 5 $true)
+        (New-DemoRow 'D:\Work\notes-app' 'Fix markdown preview scroll' 0.3 8 $true)
+        (New-DemoRow 'D:\Work\wiki-site' 'Heading anchor jump on docs' 20 3 $true)
+        (New-DemoRow 'D:\Work\cli-tools' 'Add a doctor command' 72 2 $true)
+        (New-DemoRow 'D:\Work\game-proto' 'Dash animation timing' 96 4 $true)
+    )
 }
 
 function Format-Ago {
@@ -344,8 +382,20 @@ if ($ListOnly) {
 }
 
 if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
-    $arg = '-STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $PSCommandPath
-    Start-Process -FilePath 'powershell.exe' -ArgumentList $arg | Out-Null
+    $argList = New-Object System.Collections.Generic.List[string]
+    [void]$argList.Add('-STA')
+    [void]$argList.Add('-NoProfile')
+    [void]$argList.Add('-ExecutionPolicy')
+    [void]$argList.Add('Bypass')
+    if (-not $script:ScreenshotMode) {
+        [void]$argList.Add('-WindowStyle')
+        [void]$argList.Add('Hidden')
+    }
+    [void]$argList.Add('-File')
+    [void]$argList.Add($PSCommandPath)
+    if ($Demo) { [void]$argList.Add('-Demo') }
+    if ($Screenshot) { [void]$argList.Add('-Screenshot') }
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $argList.ToArray() | Out-Null
     exit 0
 }
 
@@ -646,7 +696,11 @@ public static class NativeDpi {
     function Reload-Projects {
         $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
         try {
-            $script:allProjects = @(Get-GrokRecentProjects)
+            if ($script:DemoMode) {
+                $script:allProjects = @(Get-DemoProjects)
+            } else {
+                $script:allProjects = @(Get-GrokRecentProjects)
+            }
             Show-Rows
         } finally {
             $form.Cursor = [System.Windows.Forms.Cursors]::Default
@@ -790,11 +844,27 @@ public static class NativeDpi {
             try {
                 $form.Activate()
                 Reload-Projects
-                $search.Focus()
+                if (-not $script:ScreenshotMode) { $search.Focus() }
             } catch {
                 [System.Windows.Forms.MessageBox]::Show($_.Exception.ToString(), '加载项目列表失败') | Out-Null
             } finally {
-                $form.TopMost = $false
+                if (-not $script:ScreenshotMode) { $form.TopMost = $false }
+            }
+
+            if ($script:ScreenshotMode) {
+                $form.Refresh()
+                [System.Windows.Forms.Application]::DoEvents()
+                $outDir = Join-Path $script:Root 'docs'
+                if (-not (Test-Path -LiteralPath $outDir)) {
+                    New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+                }
+                $outPath = Join-Path $outDir 'screenshot.png'
+                # Draw the form itself — never CopyFromScreen (that could leak the real desktop).
+                $bmp = New-Object System.Drawing.Bitmap $form.ClientSize.Width, $form.ClientSize.Height
+                $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle 0, 0, $form.ClientSize.Width, $form.ClientSize.Height))
+                $bmp.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
+                $bmp.Dispose()
+                $form.Close()
             }
         })
 

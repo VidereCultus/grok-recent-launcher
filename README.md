@@ -6,6 +6,10 @@ Windows 小工具：从本机 Grok 会话记录里找回用过的项目目录，
 
 > Unofficial. Not affiliated with xAI / Grok.
 
+![演示界面](docs/screenshot.png)
+
+截图用的是虚构示例数据（`D:\Work\shop-web` 等），不含真实项目路径或会话内容。
+
 [English](#grok-recent-project-launcher)
 
 ## 功能
@@ -61,6 +65,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\GrokRecent.ps1 -Version
 A tiny Windows app that reads **local** Grok session metadata, lists the folders you recently used, and reopens them in Windows Terminal.
 
 Unofficial. Not affiliated with xAI / Grok.
+
+The screenshot above uses fictional sample rows (`D:\Work\shop-web`, etc.), not real project paths.
 
 ## Features
 

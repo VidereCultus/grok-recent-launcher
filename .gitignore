@@ -3,6 +3,8 @@ config.json
 last-error.log
 debug.log
 debug.err.log
+docs/shot.log
+docs/shot.err.log
 *.lnk
 
 # OS
