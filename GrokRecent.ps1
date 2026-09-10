@@ -12,7 +12,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.2.0'
+$script:AppVersion = '1.2.1'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -304,21 +304,6 @@ function New-ProjectFromPath {
     }
 }
 
-function Get-ShellCommandForMode {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$Mode,
-        [string]$GrokExe
-    )
-    $qDir = $Path.Replace("'", "''")
-    if ($Mode -eq 'terminal') {
-        return "Set-Location -LiteralPath '$qDir'"
-    }
-    $qGrok = $GrokExe.Replace("'", "''")
-    $tail = if ($Mode -eq 'continue') { ' -c' } else { '' }
-    return "Set-Location -LiteralPath '$qDir'; & '$qGrok'$tail"
-}
-
 function Open-GrokProjects {
     param(
         [Parameter(Mandatory)][object[]]$Projects,
@@ -346,6 +331,8 @@ function Open-GrokProjects {
         throw '找不到 grok.exe。确认已安装 Grok，并且 ~/.grok/bin 在 PATH 里。'
     }
 
+    # Windows Terminal treats a top-level ";" as a new command. Never put ";"
+    # inside -Command, or WT will try to start "& '...\grok.exe'" as a file.
     if ($wt) {
         $wtArgs = New-Object System.Collections.Generic.List[string]
         [void]$wtArgs.Add('-w')
@@ -353,16 +340,17 @@ function Open-GrokProjects {
         $first = $true
         foreach ($p in $existing) {
             if (-not $first) { [void]$wtArgs.Add(';') }
-            $cmd = Get-ShellCommandForMode -Path $p.Path -Mode $Mode -GrokExe $grok
             [void]$wtArgs.Add('new-tab')
             [void]$wtArgs.Add('--title')
-            [void]$wtArgs.Add($p.Label)
+            [void]$wtArgs.Add(($p.Label -replace '[;"]', ' '))
             [void]$wtArgs.Add('-d')
             [void]$wtArgs.Add($p.Path)
-            [void]$wtArgs.Add('powershell.exe')
-            [void]$wtArgs.Add('-NoExit')
-            [void]$wtArgs.Add('-Command')
-            [void]$wtArgs.Add($cmd)
+            if ($Mode -eq 'terminal') {
+                [void]$wtArgs.Add('powershell.exe')
+            } else {
+                [void]$wtArgs.Add($grok)
+                if ($Mode -eq 'continue') { [void]$wtArgs.Add('-c') }
+            }
             $first = $false
         }
         $argLine = (
@@ -376,8 +364,13 @@ function Open-GrokProjects {
     }
 
     foreach ($p in $existing) {
-        $cmd = Get-ShellCommandForMode -Path $p.Path -Mode $Mode -GrokExe $grok
-        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoExit', '-Command', $cmd) -WorkingDirectory $p.Path | Out-Null
+        if ($Mode -eq 'terminal') {
+            Start-Process -FilePath 'powershell.exe' -WorkingDirectory $p.Path | Out-Null
+            continue
+        }
+        $arg = @()
+        if ($Mode -eq 'continue') { $arg += '-c' }
+        Start-Process -FilePath $grok -ArgumentList $arg -WorkingDirectory $p.Path | Out-Null
     }
 }
 
