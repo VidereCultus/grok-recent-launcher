@@ -12,7 +12,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.1.0'
+$script:AppVersion = '1.2.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -287,6 +287,38 @@ function Sort-Projects {
         @{ Expression = { $_.LastActive }; Descending = $true }
 }
 
+function New-ProjectFromPath {
+    param([Parameter(Mandatory)][string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path.TrimEnd('\', '/'))
+    $leaf = Split-Path $full -Leaf
+    if ([string]::IsNullOrWhiteSpace($leaf)) { $leaf = $full }
+    return [pscustomobject]@{
+        Path         = $full
+        Name         = $leaf
+        Parent       = Split-Path $full -Parent
+        LastActive   = [datetimeoffset]::Now
+        LastTitle    = ''
+        SessionCount = 0
+        Exists       = (Test-Path -LiteralPath $full)
+        Label        = $leaf
+    }
+}
+
+function Get-ShellCommandForMode {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Mode,
+        [string]$GrokExe
+    )
+    $qDir = $Path.Replace("'", "''")
+    if ($Mode -eq 'terminal') {
+        return "Set-Location -LiteralPath '$qDir'"
+    }
+    $qGrok = $GrokExe.Replace("'", "''")
+    $tail = if ($Mode -eq 'continue') { ' -c' } else { '' }
+    return "Set-Location -LiteralPath '$qDir'; & '$qGrok'$tail"
+}
+
 function Open-GrokProjects {
     param(
         [Parameter(Mandatory)][object[]]$Projects,
@@ -321,26 +353,22 @@ function Open-GrokProjects {
         $first = $true
         foreach ($p in $existing) {
             if (-not $first) { [void]$wtArgs.Add(';') }
+            $cmd = Get-ShellCommandForMode -Path $p.Path -Mode $Mode -GrokExe $grok
             [void]$wtArgs.Add('new-tab')
             [void]$wtArgs.Add('--title')
             [void]$wtArgs.Add($p.Label)
             [void]$wtArgs.Add('-d')
             [void]$wtArgs.Add($p.Path)
-            if ($Mode -eq 'terminal') {
-                [void]$wtArgs.Add('powershell.exe')
-            } else {
-                [void]$wtArgs.Add($grok)
-                [void]$wtArgs.Add('--cwd')
-                [void]$wtArgs.Add($p.Path)
-                if ($Mode -eq 'continue') { [void]$wtArgs.Add('-c') }
-            }
+            [void]$wtArgs.Add('powershell.exe')
+            [void]$wtArgs.Add('-NoExit')
+            [void]$wtArgs.Add('-Command')
+            [void]$wtArgs.Add($cmd)
             $first = $false
         }
         $argLine = (
             $wtArgs | ForEach-Object {
                 if ($_ -eq ';') { ';' }
-                elseif ($_ -match '[\s"]') { '"{0}"' -f ($_ -replace '"', '\"') }
-                else { $_ }
+                else { '"{0}"' -f ($_ -replace '"', '\"') }
             }
         ) -join ' '
         Start-Process -FilePath $wt -ArgumentList $argLine | Out-Null
@@ -348,13 +376,8 @@ function Open-GrokProjects {
     }
 
     foreach ($p in $existing) {
-        if ($Mode -eq 'terminal') {
-            Start-Process -FilePath 'powershell.exe' -WorkingDirectory $p.Path | Out-Null
-            continue
-        }
-        $arg = @('--cwd', $p.Path)
-        if ($Mode -eq 'continue') { $arg += '-c' }
-        Start-Process -FilePath $grok -ArgumentList $arg -WorkingDirectory $p.Path | Out-Null
+        $cmd = Get-ShellCommandForMode -Path $p.Path -Mode $Mode -GrokExe $grok
+        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoExit', '-Command', $cmd) -WorkingDirectory $p.Path | Out-Null
     }
 }
 
@@ -605,13 +628,19 @@ public static class UiUtil {
 
     $btnContinue = New-BarButton '续上' $accent $ink 86 $accentHover
     $btnNew = New-BarButton '新开' $panel $text 72 $hover
+    $btnPick = New-BarButton '选目录' $panel $text 80 $hover
     $btnTerm = New-BarButton '终端' $panel $text 72 $hover
     $btnFolder = New-BarButton '文件夹' $panel $text 80 $hover
     $btnRefresh = New-BarButton '刷新' $panel $muted 72 $hover
-    foreach ($b in @($btnNew, $btnTerm, $btnFolder, $btnRefresh)) {
+    foreach ($b in @($btnNew, $btnPick, $btnTerm, $btnFolder, $btnRefresh)) {
         $b.FlatAppearance.BorderSize = 1
         $b.FlatAppearance.BorderColor = $line
     }
+    $tip = New-Object System.Windows.Forms.ToolTip
+    $tip.SetToolTip($btnNew, '在列表选中的目录新开 Grok 会话')
+    $tip.SetToolTip($btnPick, '浏览任意文件夹，在那里新开 Grok')
+    $tip.SetToolTip($btnContinue, '继续该目录最近一次会话')
+    $tip.SetToolTip($btnFolder, '用资源管理器打开目录')
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = 'Fill'
@@ -688,7 +717,7 @@ public static class UiUtil {
         $btnAbout.Left = $header.ClientSize.Width - 90
         $btnAbout.Top = 22
         $right = $toolbar.ClientSize.Width - 18
-        foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnNew, $btnContinue)) {
+        foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnPick, $btnNew, $btnContinue)) {
             $right -= $b.Width
             $b.Left = $right
             $b.Top = 12
@@ -882,6 +911,35 @@ public static class UiUtil {
         }
     }
 
+    function Invoke-PickDirectoryAndNew {
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = '选择要新开 Grok 的目录'
+        $dlg.ShowNewFolderButton = $true
+        $picked = @(Get-SelectedProjects)
+        if ($picked.Count -gt 0 -and $picked[0].Exists) {
+            $dlg.SelectedPath = $picked[0].Path
+        }
+        $wasTop = $form.TopMost
+        $form.TopMost = $false
+        try {
+            $result = $dlg.ShowDialog($form)
+        } finally {
+            $form.TopMost = $wasTop
+        }
+        if ($result -ne [System.Windows.Forms.DialogResult]::OK) { return }
+        if ([string]::IsNullOrWhiteSpace($dlg.SelectedPath)) { return }
+        $proj = New-ProjectFromPath $dlg.SelectedPath
+        if (-not $proj.Exists) {
+            [System.Windows.Forms.MessageBox]::Show('这个目录不存在。', 'Grok 最近项目') | Out-Null
+            return
+        }
+        try {
+            Open-GrokProjects -Projects @($proj) -Mode 'new'
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
+        }
+    }
+
     function Toggle-Pin {
         param([string]$Path)
         $kept = @()
@@ -919,6 +977,7 @@ public static class UiUtil {
 
     $btnContinue.Add_Click({ Invoke-Open 'continue' })
     $btnNew.Add_Click({ Invoke-Open 'new' })
+    $btnPick.Add_Click({ Invoke-PickDirectoryAndNew })
     $btnTerm.Add_Click({ Invoke-Open 'terminal' })
     $btnFolder.Add_Click({ Invoke-Open 'folder' })
     $btnRefresh.Add_Click({ Reload-Projects })
@@ -949,6 +1008,7 @@ public static class UiUtil {
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
     $mContinue = $menu.Items.Add('续上上次会话')
     $mNew = $menu.Items.Add('新开会话')
+    $mPick = $menu.Items.Add('选择目录新开...')
     $mTerm = $menu.Items.Add('只开终端')
     $mFolder = $menu.Items.Add('打开文件夹')
     [void]$menu.Items.Add('-')
@@ -956,6 +1016,7 @@ public static class UiUtil {
     $mPin = $menu.Items.Add('置顶 / 取消置顶')
     $mContinue.Add_Click({ Invoke-Open 'continue' })
     $mNew.Add_Click({ Invoke-Open 'new' })
+    $mPick.Add_Click({ Invoke-PickDirectoryAndNew })
     $mTerm.Add_Click({ Invoke-Open 'terminal' })
     $mFolder.Add_Click({ Invoke-Open 'folder' })
     $mCopy.Add_Click({

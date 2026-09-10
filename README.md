@@ -16,8 +16,10 @@ Windows 小工具：从本机 Grok 会话记录里找回用过的项目目录，
 
 - 列出最近用过 Grok 的目录（按上次活动时间）
 - 多选后一次打开多个标签
-- **续上** = `grok --cwd <dir> -c`（继续该目录最近一次会话）
-- **新开** / **终端** / **资源管理器**
+- **续上** = 在列表选中的目录继续上次会话
+- **新开** = 在列表选中的目录新开 Grok（不是只打开文件夹）
+- **选目录** = 浏览任意文件夹后新开 Grok
+- **终端** / **文件夹**（资源管理器）
 - 搜索、置顶、右键菜单
 - 无联网；偏好存在 `%APPDATA%\GrokRecentLauncher\`
 
@@ -72,8 +74,10 @@ The screenshot above uses fictional sample rows (`D:\Work\shop-web`, etc.), not 
 
 - Recent Grok working directories, newest first
 - Multi-select → open several tabs at once
-- **Continue** runs `grok --cwd <dir> -c`
-- New session / terminal-only / Explorer
+- **Continue** resumes the last session in the selected folder
+- **New** starts a fresh Grok session there (not just Explorer)
+- **Browse** picks any folder and starts Grok there
+- Terminal-only / Explorer
 - Search, pins, context menu
 - Offline. Pins live in `%APPDATA%\GrokRecentLauncher\`
 
