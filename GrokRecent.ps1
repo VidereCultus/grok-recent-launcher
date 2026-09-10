@@ -628,19 +628,18 @@ public static class UiUtil {
 
     $btnContinue = New-BarButton '续上' $accent $ink 86 $accentHover
     $btnNew = New-BarButton '新开' $panel $text 72 $hover
-    $btnPick = New-BarButton '选目录' $panel $text 80 $hover
     $btnTerm = New-BarButton '终端' $panel $text 72 $hover
     $btnFolder = New-BarButton '文件夹' $panel $text 80 $hover
     $btnRefresh = New-BarButton '刷新' $panel $muted 72 $hover
-    foreach ($b in @($btnNew, $btnPick, $btnTerm, $btnFolder, $btnRefresh)) {
+    foreach ($b in @($btnNew, $btnTerm, $btnFolder, $btnRefresh)) {
         $b.FlatAppearance.BorderSize = 1
         $b.FlatAppearance.BorderColor = $line
     }
     $tip = New-Object System.Windows.Forms.ToolTip
     $tip.SetToolTip($btnNew, '在列表选中的目录新开 Grok 会话')
-    $tip.SetToolTip($btnPick, '浏览任意文件夹，在那里新开 Grok')
     $tip.SetToolTip($btnContinue, '继续该目录最近一次会话')
-    $tip.SetToolTip($btnFolder, '用资源管理器打开目录')
+    $tip.SetToolTip($btnFolder, '选择任意目录，在那里新开 Grok（不是只打开资源管理器）')
+    $tip.SetToolTip($btnTerm, '只打开终端，停在选中目录')
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = 'Fill'
@@ -717,7 +716,7 @@ public static class UiUtil {
         $btnAbout.Left = $header.ClientSize.Width - 90
         $btnAbout.Top = 22
         $right = $toolbar.ClientSize.Width - 18
-        foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnPick, $btnNew, $btnContinue)) {
+        foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnNew, $btnContinue)) {
             $right -= $b.Width
             $b.Left = $right
             $b.Top = 12
@@ -913,7 +912,7 @@ public static class UiUtil {
 
     function Invoke-PickDirectoryAndNew {
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = '选择要新开 Grok 的目录'
+        $dlg.Description = '选择目录，然后在这里新开 Grok'
         $dlg.ShowNewFolderButton = $true
         $picked = @(Get-SelectedProjects)
         if ($picked.Count -gt 0 -and $picked[0].Exists) {
@@ -977,9 +976,8 @@ public static class UiUtil {
 
     $btnContinue.Add_Click({ Invoke-Open 'continue' })
     $btnNew.Add_Click({ Invoke-Open 'new' })
-    $btnPick.Add_Click({ Invoke-PickDirectoryAndNew })
     $btnTerm.Add_Click({ Invoke-Open 'terminal' })
-    $btnFolder.Add_Click({ Invoke-Open 'folder' })
+    $btnFolder.Add_Click({ Invoke-PickDirectoryAndNew })
     $btnRefresh.Add_Click({ Reload-Projects })
 
     $grid.Add_CellDoubleClick({
