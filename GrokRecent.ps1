@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.5.0'
+$script:AppVersion = '1.6.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -43,6 +43,8 @@ $script:lastUsage = $null
 $script:chartGeom = $null
 $script:recentPaths = @()
 $script:dashTopPaths = @()
+$script:rangeAutoPicked = $false
+$script:recentRows = @()
 
 $legacyConfig = Join-Path $script:Root 'config.json'
 if (-not (Test-Path -LiteralPath $script:ConfigPath) -and (Test-Path -LiteralPath $legacyConfig)) {
@@ -333,6 +335,32 @@ function Format-Wow {
     return ('较昨日 {0:+#0;-#0}%' -f [int][Math]::Round($pct))
 }
 
+function Get-NiceCeiling {
+    param($Value)
+    $v = 0.0
+    try { $v = [double]$Value } catch { $v = 0.0 }
+    if ($v -le 0) { return 1.0 }
+    $padded = $v * 1.12
+    $exp = [Math]::Floor([Math]::Log10($padded))
+    $base = [Math]::Pow(10, $exp)
+    $n = $padded / $base
+    $nice = 10.0
+    foreach ($c in @(1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)) {
+        if ($n -le $c) { $nice = $c; break }
+    }
+    return $nice * $base
+}
+
+function Get-RangeCaption {
+    param([string]$Range)
+    switch ($Range) {
+        'today' { return '今日总量' }
+        '7d'    { return '近 7 天总量' }
+        '30d'   { return '近 30 天总量' }
+        default { return '累计 Token' }
+    }
+}
+
 function Get-RangeStart {
     param([string]$Range)
     switch ($Range) {
@@ -359,6 +387,7 @@ function Get-DemoUsageSnapshot {
         $total += $v; $inp += $vi; $outp += $vo
         $days += [pscustomobject]@{ Date = $d; Total = $v; Input = $vi; Output = $vo }
     }
+    if ($Range -eq 'today') { $days = @($days[-1]); $total = [int64]$days[0].Total; $inp = [int64]$days[0].Input; $outp = [int64]$days[0].Output }
     if ($Range -eq '30d') { $total = [int64]($total * 2.1); $inp = [int64]($inp * 2.1); $outp = [int64]($outp * 2.1) }
     if ($Range -eq 'all') { $total = [int64]($total * 4.8); $inp = [int64]($inp * 4.8); $outp = [int64]($outp * 4.8) }
     $top = @(
@@ -442,7 +471,6 @@ function Get-UsageSnapshot {
     }
     $chartFrom = $from
     if ($Range -eq 'all' -or $Range -eq '30d') { $chartFrom = [datetime]::Today.AddDays(-13) }
-    if ($Range -eq 'today') { $chartFrom = [datetime]::Today.AddDays(-6) }
     $days = @()
     for ($d = $chartFrom; $d -le [datetime]::Today; $d = $d.AddDays(1)) {
         $k = $d.ToString('yyyy-MM-dd')
@@ -487,6 +515,58 @@ function Get-UsageSnapshot {
         TopDirs  = $top
         Model    = $model
     }
+}
+
+function Get-RecentSessions {
+    param([int]$Take = 8)
+    if ($script:DemoMode) {
+        $now = [datetimeoffset]::Now
+        return @(
+            [pscustomobject]@{ Title = 'Fix markdown preview scroll'; Label = 'notes-app'; Path = 'D:\Work\notes-app'; When = $now.AddMinutes(-18) }
+            [pscustomobject]@{ Title = 'Empty state for the order list'; Label = 'shop-web'; Path = 'D:\Work\shop-web'; When = $now.AddHours(-2) }
+            [pscustomobject]@{ Title = 'Heading anchor jump on docs'; Label = 'wiki-site'; Path = 'D:\Work\wiki-site'; When = $now.AddHours(-20) }
+            [pscustomobject]@{ Title = 'Add a doctor command'; Label = 'cli-tools'; Path = 'D:\Work\cli-tools'; When = $now.AddDays(-3) }
+            [pscustomobject]@{ Title = 'Dash animation timing'; Label = 'game-proto'; Path = 'D:\Work\game-proto'; When = $now.AddDays(-4) }
+        )
+    }
+    $sessionsRoot = Join-Path $env:USERPROFILE '.grok\sessions'
+    $list = @()
+    if (-not (Test-Path -LiteralPath $sessionsRoot)) { return @() }
+    foreach ($group in Get-ChildItem -LiteralPath $sessionsRoot -Directory -ErrorAction SilentlyContinue) {
+        $cwd = Convert-SessionCwd -EncodedName $group.Name -GroupPath $group.FullName
+        foreach ($sessionDir in Get-ChildItem -LiteralPath $group.FullName -Directory -ErrorAction SilentlyContinue) {
+            $sumPath = Join-Path $sessionDir.FullName 'summary.json'
+            if (-not (Test-Path -LiteralPath $sumPath)) { continue }
+            $sum = Read-JsonFile $sumPath
+            $when = $null
+            if ($sum) {
+                foreach ($field in @('last_active_at', 'updated_at')) {
+                    if ($sum.PSObject.Properties.Name -contains $field) {
+                        $when = Convert-GrokTime ([string]$sum.$field)
+                        if ($when) { break }
+                    }
+                }
+            }
+            if (-not $when) { $when = [datetimeoffset](Get-Item -LiteralPath $sumPath).LastWriteTime }
+            $title = $null
+            if ($sum) {
+                foreach ($field in @('generated_title', 'session_summary')) {
+                    if ($sum.PSObject.Properties.Name -contains $field -and $sum.$field) {
+                        $title = Sanitize-Title ([string]$sum.$field)
+                        if ($title) { break }
+                    }
+                }
+            }
+            $leaf = if ($cwd) { Split-Path $cwd -Leaf } else { $sessionDir.Name }
+            $list += [pscustomobject]@{
+                Title = $(if ($title) { $title } else { $leaf })
+                Label = $leaf
+                Path  = $(if ($cwd) { $cwd } else { '' })
+                When  = $when
+            }
+        }
+    }
+    return @($list | Sort-Object When -Descending | Select-Object -First $Take)
 }
 
 function Ensure-ProcessCwdType {
@@ -1248,7 +1328,7 @@ public static class UiUtil {
     $kpiOut = New-KpiPanel
     $kpiMeta = New-KpiPanel
     $kpiMeta.Panel.Margin = New-Object System.Windows.Forms.Padding(0)
-    $kpiHero.Cap.Text = '总 Token'
+    $kpiHero.Cap.Text = '近 7 天总量'
     $kpiToday.Cap.Text = '今日用量'
     $kpiIn.Cap.Text = '输入'
     $kpiOut.Cap.Text = '输出'
@@ -1273,14 +1353,14 @@ public static class UiUtil {
     $rangeHost.BackColor = $panel
     $chartPanel.Controls.Add($rangeHost)
     $rangeLabel = New-Object System.Windows.Forms.Label
-    $rangeLabel.Text = '趋势'
+    $rangeLabel.Text = 'Token 趋势'
     $rangeLabel.ForeColor = $muted
     $rangeLabel.Font = $smallFont
     $rangeLabel.AutoSize = $true
     $rangeLabel.Location = New-Object System.Drawing.Point(12, 10)
     $rangeHost.Controls.Add($rangeLabel)
     $chartLegend = New-Object System.Windows.Forms.Label
-    $chartLegend.Text = '灰 = 输入　　金 = 输出　　悬停看当日明细'
+    $chartLegend.Text = '柱子是总量 · 悬停看输入 / 输出'
     $chartLegend.ForeColor = $muted
     $chartLegend.Font = $smallFont
     $chartLegend.AutoSize = $true
@@ -1288,7 +1368,7 @@ public static class UiUtil {
     $rangeHost.Controls.Add($chartLegend)
 
     $script:rangeButtons = @{}
-    $rx = 48
+    $rx = 110
     $rangeDefs = @(
         [pscustomobject]@{ Key = 'today'; Text = '今天' }
         [pscustomobject]@{ Key = '7d'; Text = '近 7 天' }
@@ -1371,7 +1451,7 @@ public static class UiUtil {
         $fill.Height = 6
         $fill.Left = 0
         $fill.Top = 0
-        $fill.BackColor = $accent
+        $fill.BackColor = [System.Drawing.Color]::FromArgb(120, 108, 84)
         $track.Controls.Add($fill)
         $rankBody.Controls.Add($row)
         $script:rankRows += @{ Row = $row; Name = $nm; Nums = $nums; Track = $track; Fill = $fill; Path = '' }
@@ -1387,7 +1467,7 @@ public static class UiUtil {
     $recentHead.BackColor = $panel
     $recentPanel.Controls.Add($recentHead)
     $recentTitle = New-Object System.Windows.Forms.Label
-    $recentTitle.Text = '最近项目'
+    $recentTitle.Text = '最近会话'
     $recentTitle.ForeColor = $muted
     $recentTitle.Font = $smallFont
     $recentTitle.AutoSize = $true
@@ -1409,19 +1489,37 @@ public static class UiUtil {
     $btnQuick.BackColor = $accent
     $btnQuick.ForeColor = $ink
     $btnQuick.Height = 24
-    $btnQuick.Width = 118
+    $btnQuick.Width = 148
     $btnQuick.Cursor = [System.Windows.Forms.Cursors]::Hand
-    $btnQuick.Text = ('恢复 {0} 个项目' -f [int]$numQuick.Value)
+    $btnQuick.Text = ('恢复最近 {0} 个会话' -f [int]$numQuick.Value)
     $recentHead.Controls.Add($btnQuick)
-    $recentList = New-Object System.Windows.Forms.ListBox
-    $recentList.Dock = 'Fill'
-    $recentList.BackColor = $panel
-    $recentList.ForeColor = $text
-    $recentList.BorderStyle = 'None'
-    $recentList.Font = $smallFont
-    $recentList.IntegralHeight = $false
-    $recentPanel.Controls.Add($recentList)
-    $recentList.BringToFront()
+    $recentBody = New-Object System.Windows.Forms.Panel
+    $recentBody.Dock = 'Fill'
+    $recentBody.BackColor = $panel
+    $recentPanel.Controls.Add($recentBody)
+    $recentBody.BringToFront()
+    $script:recentRows = @()
+    $hoverBg = $hover
+    for ($si = 0; $si -lt 8; $si++) {
+        $srow = New-Object System.Windows.Forms.Panel
+        $srow.Height = 34
+        $srow.BackColor = $panel
+        $srow.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $sn = New-Object System.Windows.Forms.Label
+        $sn.ForeColor = $text
+        $sn.Font = $smallFont
+        $sn.AutoSize = $false
+        $sn.SetBounds(12, 8, 200, 18)
+        $srow.Controls.Add($sn)
+        $st = New-Object System.Windows.Forms.Label
+        $st.ForeColor = $muted
+        $st.Font = $smallFont
+        $st.TextAlign = 'MiddleRight'
+        $st.SetBounds(220, 8, 90, 18)
+        $srow.Controls.Add($st)
+        $recentBody.Controls.Add($srow)
+        $script:recentRows += @{ Row = $srow; Name = $sn; Time = $st; Path = ''; Title = '' }
+    }
 
     $split.Controls.Add($rankPanel, 0, 0)
     $split.Controls.Add($recentPanel, 1, 0)
@@ -1470,13 +1568,13 @@ public static class UiUtil {
         if (-not $pageDash.Visible) { return }
         if (-not $form.IsHandleCreated) { return }
         $n = [int]$numQuick.Value
-        $btnQuick.Text = ('恢复 {0} 个项目' -f $n)
-        $btnQuick.Left = [Math]::Max(120, $recentHead.ClientSize.Width - 132)
+        $btnQuick.Text = ('恢复最近 {0} 个会话' -f $n)
+        $btnQuick.Width = 148
+        $btnQuick.Left = [Math]::Max(160, $recentHead.ClientSize.Width - 162)
         $btnQuick.Top = 6
         $numQuick.Left = $btnQuick.Left - 50
         $numQuick.Top = 7
         $bw = [Math]::Max(80, $rankBody.ClientSize.Width)
-        $bh = [Math]::Max(120, $rankBody.ClientSize.Height)
         $rowH = 36
         for ($i = 0; $i -lt $script:rankRows.Count; $i++) {
             $r = $script:rankRows[$i]
@@ -1489,7 +1587,23 @@ public static class UiUtil {
             if ($r.Contains('Pct')) { $pct = [double]$r.Pct }
             $r.Fill.Width = [int]($r.Track.Width * $pct / 100.0)
         }
-        $chartLegend.Left = [Math]::Max(360, $rangeHost.ClientSize.Width - 280)
+        $rw = [Math]::Max(80, $recentBody.ClientSize.Width)
+        for ($i = 0; $i -lt $script:recentRows.Count; $i++) {
+            $r = $script:recentRows[$i]
+            $r.Row.SetBounds(0, $i * 34, $rw, 34)
+            $r.Name.SetBounds(12, 8, [Math]::Max(60, $rw - 120), 18)
+            $r.Time.SetBounds($rw - 108, 8, 96, 18)
+        }
+        $rangeLabel.Left = 12
+        $keys = @('today', '7d', '30d', 'all')
+        $x = $rangeHost.ClientSize.Width - 8
+        for ($i = $keys.Count - 1; $i -ge 0; $i--) {
+            $b = $script:rangeButtons[$keys[$i]]
+            $x -= $b.Width
+            $b.Left = $x
+            $x -= 4
+        }
+        $chartLegend.Left = $rangeLabel.Right + 16
     }
 
     function Layout-Buttons {
@@ -1958,20 +2072,21 @@ public static class UiUtil {
         $g.Clear($panel)
         $days = @($Snap.Days)
         $mutedBr = New-Object System.Drawing.SolidBrush $muted
-        $inBr = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(92, 84, 72))
-        $outBr = New-Object System.Drawing.SolidBrush $accent
+        $barBr = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(120, 108, 84))
+        $peakBr = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(168, 148, 108))
         $gridPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(48, 44, 38))
-        $padL = 44; $padB = 24; $padT = 10; $padR = 16
+        $padL = 48; $padB = 24; $padT = 10; $padR = 16
         $plotW = $w - $padL - $padR
         $plotH = $h - $padT - $padB
         if ($days.Count -eq 0) {
             $g.DrawString('这段时间没有 usage.json 记录', $smallFont, $mutedBr, 20, 60)
         } else {
-            $max = ($days | Measure-Object -Property Total -Maximum).Maximum
-            if ($max -le 0) { $max = 1 }
+            $rawMax = ($days | Measure-Object -Property Total -Maximum).Maximum
+            if ($rawMax -le 0) { $rawMax = 1 }
+            $max = Get-NiceCeiling $rawMax
             $n = $days.Count
             $slot = $plotW / [double]$n
-            $bw = [Math]::Max(8, [int]($slot - 10))
+            $bw = [Math]::Max(10, [int]($slot - 10))
             $script:chartGeom = @{ PadL = $padL; Slot = $slot; N = $n; Days = $days }
             foreach ($tick in @(0.0, 0.5, 1.0)) {
                 $ty = $padT + $plotH - [int]($plotH * $tick)
@@ -1986,19 +2101,11 @@ public static class UiUtil {
             for ($i = 0; $i -lt $n; $i++) {
                 $day = $days[$i]
                 $x = $padL + [int]($i * $slot) + 4
-                $inH = [int]($plotH * ([double]$day.Input / $max))
-                $outH = [int]($plotH * ([double]$day.Output / $max))
-                if ($inH -lt 2 -and $day.Input -gt 0) { $inH = 2 }
-                if ($outH -lt 2 -and $day.Output -gt 0) { $outH = 2 }
-                $yIn = $padT + $plotH - $inH
-                $g.FillRectangle($inBr, $x, $yIn, $bw, $inH)
-                $yOut = $yIn - $outH
-                $g.FillRectangle($outBr, $x, $yOut, $bw, $outH)
-                if ($i -eq $peakI -and $peakV -gt 0) {
-                    $mark = New-Object System.Drawing.SolidBrush $accent
-                    $g.FillRectangle($mark, $x, $padT + $plotH - $inH - $outH - 4, $bw, 2)
-                    $mark.Dispose()
-                }
+                $bh = [int]($plotH * ([double]$day.Total / $max))
+                if ($bh -lt 2 -and $day.Total -gt 0) { $bh = 2 }
+                $y = $padT + $plotH - $bh
+                $useBr = $(if ($i -eq $peakI) { $peakBr } else { $barBr })
+                $g.FillRectangle($useBr, $x, $y, $bw, $bh)
                 $g.DrawString($day.Date.ToString('M/d'), $smallFont, $mutedBr, $x, $h - 20)
             }
             $hi = $script:chartHover
@@ -2007,7 +2114,7 @@ public static class UiUtil {
                 $prev = [int64]0
                 if ($hi -gt 0) { $prev = [int64]$days[$hi - 1].Total }
                 $wow = Format-Wow $day.Total $prev
-                $boxW = 210; $boxH = 78
+                $boxW = 228; $boxH = 86
                 $bx = [Math]::Min($w - $boxW - 8, $padL + [int]($hi * $slot) + 20)
                 $by = 8
                 $bgb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(18, 17, 15))
@@ -2019,15 +2126,16 @@ public static class UiUtil {
                 $txtBr = New-Object System.Drawing.SolidBrush $text
                 $line1 = $day.Date.ToString('M 月 d 日')
                 $line2 = ('总量 {0}' -f (Format-TokenM $day.Total))
-                $line3 = ('输入 {0}    输出 {1}' -f (Format-TokenM $day.Input), (Format-TokenM $day.Output))
-                $g.DrawString($line1, $smallFont, $txtBr, $bx + 8, $by + 6)
-                $g.DrawString($line2, $smallFont, $outBr, $bx + 8, $by + 24)
-                $g.DrawString($line3, $smallFont, $mutedBr, $bx + 8, $by + 42)
-                if ($wow) { $g.DrawString($wow, $smallFont, $txtBr, $bx + 8, $by + 58) }
+                $line3 = ('输入 {0} · {1}' -f (Format-TokenM $day.Input), (Format-PctShare $day.Input $day.Total))
+                $line4 = ('输出 {0} · {1}' -f (Format-TokenM $day.Output), (Format-PctShare $day.Output $day.Total))
+                $g.DrawString($line1, $smallFont, $txtBr, $bx + 8, $by + 4)
+                $g.DrawString($line2, $smallFont, $txtBr, $bx + 8, $by + 22)
+                $g.DrawString($line3, $smallFont, $mutedBr, $bx + 8, $by + 40)
+                $g.DrawString($(if ($wow) { $line4 + '    ' + $wow } else { $line4 }), $smallFont, $mutedBr, $bx + 8, $by + 58)
                 $txtBr.Dispose()
             }
         }
-        $inBr.Dispose(); $outBr.Dispose(); $mutedBr.Dispose(); $gridPen.Dispose(); $g.Dispose()
+        $barBr.Dispose(); $peakBr.Dispose(); $mutedBr.Dispose(); $gridPen.Dispose(); $g.Dispose()
         $old = $chartBox.Image
         $chartBox.Image = $bmp
         if ($old) { $old.Dispose() }
@@ -2037,10 +2145,19 @@ public static class UiUtil {
         try {
         $range = $script:config.usageRange
         if (@('today', '7d', '30d', 'all') -notcontains $range) { $range = '7d' }
+        if (-not $script:rangeAutoPicked) {
+            $probe = Get-UsageSnapshot -Range '7d'
+            $nonzero = @($probe.Days | Where-Object { $_.Total -gt 0 }).Count
+            if ($nonzero -lt 2) { $range = 'today' }
+            elseif ($nonzero -ge 7) { $range = '7d' }
+            $script:config.usageRange = $range
+            $script:rangeAutoPicked = $true
+        }
         $snap = Get-UsageSnapshot -Range $range
         $script:lastUsage = $snap
+        $kpiHero.Cap.Text = Get-RangeCaption $range
         $kpiHero.Val.Text = Format-TokenM $snap.Total
-        $kpiHero.Sub.Text = ('输入 {0} · 输出 {1}' -f (Format-PctShare $snap.Input $snap.Total), (Format-PctShare $snap.Output $snap.Total))
+        $kpiHero.Sub.Text = ''
         $kpiToday.Val.Text = Format-TokenM $snap.Today
         $kpiToday.Sub.Text = $(if ($snap.Today -gt 0) { '今天仍在进行' } else { '今天还没有用量' })
         $kpiIn.Val.Text = Format-TokenM $snap.Input
@@ -2066,25 +2183,34 @@ public static class UiUtil {
                 if ($snap.Total -le 0) { $pct = 0 }
                 $barPct = 100.0 * [double]$d.Tokens / $maxTok
                 $r.Row.Visible = $true
-                $r.Name.Text = $d.Label
+                $r.Name.Text = ('{0:d2}  {1}' -f ($i + 1), $d.Label)
                 $r.Nums.Text = ('{0}  {1}' -f (Format-TokenM $d.Tokens), (Format-PctShare $d.Tokens $snap.Total))
                 $r.Pct = $barPct
                 $r.Path = $d.Path
-                $r.Fill.BackColor = $(if ($i -eq 0) { $accent } else { [System.Drawing.Color]::FromArgb(120, 108, 84) })
+                $r.Fill.BackColor = $(if ($i -eq 0) { [System.Drawing.Color]::FromArgb(148, 132, 100) } else { [System.Drawing.Color]::FromArgb(108, 98, 80) })
             } else {
                 $r.Row.Visible = $false
                 $r.Path = ''
                 $r.Pct = 0
             }
         }
-        $recentList.Items.Clear()
+        $sessions = @(Get-RecentSessions -Take 8)
         $script:recentPaths = @()
-        $recents = @(Sort-Projects -Projects ($script:allProjects | Where-Object { $_.Exists }) -Pins @() | Select-Object -First 8)
-        foreach ($p in $recents) {
-            [void]$recentList.Items.Add(('{0}    {1}' -f $p.Label, (Format-Ago $p.LastActive)))
-            $script:recentPaths += $p.Path
+        for ($i = 0; $i -lt $script:recentRows.Count; $i++) {
+            $r = $script:recentRows[$i]
+            if ($i -lt $sessions.Count) {
+                $s = $sessions[$i]
+                $r.Row.Visible = $true
+                $r.Name.Text = $(if ($s.Label) { $s.Label } else { $s.Title })
+                $r.Time.Text = Format-Ago $s.When
+                $r.Path = $s.Path
+                $script:recentPaths += $s.Path
+            } else {
+                $r.Row.Visible = $false
+                $r.Path = ''
+            }
         }
-        $btnQuick.Text = ('恢复 {0} 个项目' -f [int]$numQuick.Value)
+        $btnQuick.Text = ('恢复最近 {0} 个会话' -f [int]$numQuick.Value)
         Layout-Dash
         $model = $snap.Model
         if ([string]::IsNullOrWhiteSpace($model)) { $model = '—' }
@@ -2167,13 +2293,23 @@ public static class UiUtil {
     $numQuick.Add_ValueChanged({
             $script:config.quickLaunchCount = [int]$numQuick.Value
             Save-LauncherConfig $script:config
-            $btnQuick.Text = ('恢复 {0} 个项目' -f [int]$numQuick.Value)
+            $btnQuick.Text = ('恢复最近 {0} 个会话' -f [int]$numQuick.Value)
             Layout-Dash
         })
     $btnQuick.Add_Click({
             $n = [int]$numQuick.Value
             if ($script:allProjects.Count -eq 0) { Reload-Projects }
-            $ready = @(Sort-Projects -Projects ($script:allProjects | Where-Object { $_.Exists }) -Pins $script:config.pins | Select-Object -First $n)
+            $sess = @(Get-RecentSessions -Take 24)
+            $ready = @()
+            $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+            foreach ($s in $sess) {
+                if ([string]::IsNullOrWhiteSpace($s.Path)) { continue }
+                if ($seen.Contains($s.Path)) { continue }
+                [void]$seen.Add($s.Path)
+                $proj = New-ProjectFromPath $s.Path
+                if ($proj.Exists) { $ready += $proj }
+                if ($ready.Count -ge $n) { break }
+            }
             if ($ready.Count -eq 0) {
                 [System.Windows.Forms.MessageBox]::Show('没有可以打开的最近项目。', '用量') | Out-Null
                 return
@@ -2184,16 +2320,29 @@ public static class UiUtil {
                 [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
             }
         })
-    $recentList.Add_DoubleClick({
-            $i = $recentList.SelectedIndex
-            if ($i -lt 0) { return }
-            if ($null -eq $script:recentPaths -or $i -ge @($script:recentPaths).Count) { return }
-            $proj = New-ProjectFromPath ([string]$script:recentPaths[$i])
+    foreach ($rr in $script:recentRows) {
+        $rr.Row.Add_MouseEnter({ $this.BackColor = $hover })
+        $rr.Row.Add_MouseLeave({ $this.BackColor = $panel })
+        $rr.Name.Add_MouseEnter({ $this.Parent.BackColor = $hover })
+        $rr.Name.Add_MouseLeave({ $this.Parent.BackColor = $panel })
+        $rr.Time.Add_MouseEnter({ $this.Parent.BackColor = $hover })
+        $rr.Time.Add_MouseLeave({ $this.Parent.BackColor = $panel })
+        $handler = {
+            $hit = $null
+            foreach ($cand in $script:recentRows) {
+                if ([object]::ReferenceEquals($cand.Row, $this) -or [object]::ReferenceEquals($cand.Row, $this.Parent)) { $hit = $cand; break }
+            }
+            if (-not $hit -or [string]::IsNullOrWhiteSpace($hit.Path)) { return }
+            $proj = New-ProjectFromPath $hit.Path
             if (-not $proj.Exists) { return }
             try { Open-GrokProjects -Projects @($proj) -Mode 'continue' } catch {
                 [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
             }
-        })
+        }
+        $rr.Row.Add_Click($handler)
+        $rr.Name.Add_Click($handler)
+        $rr.Time.Add_Click($handler)
+    }
     $script:chartHover = -1
     $chartBox.Add_MouseMove({
             param($sender, $e)
