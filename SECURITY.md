@@ -8,6 +8,7 @@ This is a **local-only** Windows helper. It does not talk to the network.
   - working directory (`info.cwd`)
   - generated title / session summary
   - timestamps
+- The Watch page also reads local `grok.exe` process IDs, working directories, `updates.jsonl` timestamps, and `signals.json` context usage. It does not read chat transcripts.
 
 It does **not** open `chat_history.jsonl`, `updates.jsonl`, `system_prompt.txt`, auth files, or `~\.grok\auth.json`.
 

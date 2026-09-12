@@ -10,6 +10,8 @@ Windows 小工具：从本机 Grok 会话记录里找回用过的项目目录，
 
 截图用的是虚构示例数据（`D:\Work\shop-web` 等），不含真实项目路径或会话内容。
 
+![监视页](docs/watch.png)
+
 [English](#grok-recent-project-launcher)
 
 ## 功能
@@ -20,6 +22,7 @@ Windows 小工具：从本机 Grok 会话记录里找回用过的项目目录，
 - **新开** = 在列表选中的目录新开 Grok
 - **文件夹** = 选择任意路径后新开 Grok（不是只打开资源管理器）
 - **终端**；右键可「打开文件夹」用资源管理器打开
+- **监视**页：看当前多开的 Grok 窗口。刚创建 / 进行中 / 刚完成 / 空闲用不同图标
 - 搜索、置顶、右键菜单
 - 无联网；偏好存在 `%APPDATA%\GrokRecentLauncher\`
 
@@ -77,6 +80,7 @@ The screenshot above uses fictional sample rows (`D:\Work\shop-web`, etc.), not 
 - **Continue** / **New** act on the selected list row
 - **Folder** browses any path and starts a new Grok session there
 - Terminal-only; Explorer is on the right-click menu
+- **Watch** page: live Grok windows with created / working / done / idle icons
 - Search, pins, context menu
 - Offline. Pins live in `%APPDATA%\GrokRecentLauncher\`
 

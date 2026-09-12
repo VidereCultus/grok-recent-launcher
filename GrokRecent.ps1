@@ -6,21 +6,24 @@ param(
     [switch]$Version,
     [switch]$Demo,
     [switch]$Screenshot,
+    [switch]$ScreenshotWatch,
+    [switch]$WatchList,
     [int]$Limit = 50
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.2.1'
+$script:AppVersion = '1.3.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
 }
 
 # Screenshot always uses fictional rows so real project paths never land in docs/.
-$script:DemoMode = [bool]($Demo -or $Screenshot)
-$script:ScreenshotMode = [bool]$Screenshot
+$script:DemoMode = [bool]($Demo -or $Screenshot -or $ScreenshotWatch)
+$script:ScreenshotMode = [bool]($Screenshot -or $ScreenshotWatch)
+$script:ScreenshotWatchMode = [bool]$ScreenshotWatch
 
 $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:DataDir = Join-Path $env:APPDATA 'GrokRecentLauncher'
@@ -260,6 +263,225 @@ function Get-DemoProjects {
     )
 }
 
+function Get-DemoLiveWindows {
+    $now = [datetimeoffset]::Now
+    @(
+        [pscustomobject]@{
+            Pid = 4101; Label = 'shop-web'; Path = 'D:\Work\shop-web'; Kind = 'working'
+            Title = 'Empty state for the order list'; Progress = 62; AgeText = '跑了 4 分钟'; Detail = '正在改订单空状态'
+        }
+        [pscustomobject]@{
+            Pid = 4102; Label = 'notes-app'; Path = 'D:\Work\notes-app'; Kind = 'created'
+            Title = 'Fix markdown preview scroll'; Progress = 8; AgeText = '刚打开 12 秒'; Detail = '新窗口，等待第一条指令'
+        }
+        [pscustomobject]@{
+            Pid = 4103; Label = 'wiki-site'; Path = 'D:\Work\wiki-site'; Kind = 'done'
+            Title = 'Heading anchor jump on docs'; Progress = 44; AgeText = '跑了 18 分钟'; Detail = '这一轮已经写完'
+        }
+        [pscustomobject]@{
+            Pid = 4104; Label = 'cli-tools'; Path = 'D:\Work\cli-tools'; Kind = 'idle'
+            Title = 'Add a doctor command'; Progress = 21; AgeText = '跑了 1 小时'; Detail = '停在提示符，等你说话'
+        }
+    )
+}
+
+function Ensure-ProcessCwdType {
+    if ('ProcessCwd' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class ProcessCwd {
+  const uint ACCESS = 0x0410;
+  [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint a, bool i, int pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, int size, out IntPtr read);
+  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr h, int pic, ref PBI pbi, int len, out int ret);
+  [StructLayout(LayoutKind.Sequential)]
+  struct PBI {
+    public IntPtr A; public IntPtr Peb; public IntPtr B; public IntPtr C; public IntPtr D; public IntPtr E;
+  }
+  public static string Get(int pid) {
+    IntPtr h = OpenProcess(ACCESS, false, pid);
+    if (h == IntPtr.Zero) return null;
+    try {
+      PBI pbi = new PBI();
+      int n;
+      if (NtQueryInformationProcess(h, 0, ref pbi, Marshal.SizeOf(pbi), out n) != 0) return null;
+      byte[] ptr = new byte[8];
+      IntPtr r;
+      if (!ReadProcessMemory(h, pbi.Peb + 0x20, ptr, 8, out r)) return null;
+      long pp = BitConverter.ToInt64(ptr, 0);
+      if (pp == 0) return null;
+      byte[] us = new byte[16];
+      if (!ReadProcessMemory(h, new IntPtr(pp + 0x38), us, 16, out r)) return null;
+      int len = BitConverter.ToUInt16(us, 0);
+      long buf = BitConverter.ToInt64(us, 8);
+      if (len <= 0 || buf == 0) return null;
+      byte[] path = new byte[len];
+      if (!ReadProcessMemory(h, new IntPtr(buf), path, len, out r)) return null;
+      return Encoding.Unicode.GetString(path).Trim().TrimEnd('\\');
+    } finally { CloseHandle(h); }
+  }
+}
+'@
+}
+
+function Format-RunAge {
+    param($Started)
+    if (-not $Started) { return '' }
+    $span = [datetime]::Now - $Started
+    if ($span.TotalSeconds -lt 60) { return ('跑了 {0} 秒' -f [int]$span.TotalSeconds) }
+    if ($span.TotalMinutes -lt 60) { return ('跑了 {0} 分钟' -f [int]$span.TotalMinutes) }
+    return ('跑了 {0} 小时' -f [Math]::Round($span.TotalHours, 1))
+}
+
+function Find-LatestSessionForCwd {
+    param([string]$Cwd)
+    if ([string]::IsNullOrWhiteSpace($Cwd)) { return $null }
+    $sessionsRoot = Join-Path $env:USERPROFILE '.grok\sessions'
+    if (-not (Test-Path -LiteralPath $sessionsRoot)) { return $null }
+    $encoded = [uri]::EscapeDataString($Cwd)
+    $group = Join-Path $sessionsRoot $encoded
+    if (-not (Test-Path -LiteralPath $group)) { return $null }
+    $best = $null
+    $bestTime = [datetimeoffset]::MinValue
+    foreach ($sessionDir in Get-ChildItem -LiteralPath $group -Directory -ErrorAction SilentlyContinue) {
+        $sumPath = Join-Path $sessionDir.FullName 'summary.json'
+        $updPath = Join-Path $sessionDir.FullName 'updates.jsonl'
+        $sigPath = Join-Path $sessionDir.FullName 'signals.json'
+        $when = $null
+        $sum = $null
+        if (Test-Path -LiteralPath $sumPath) {
+            $sum = Read-JsonFile $sumPath
+            if ($sum) {
+                foreach ($field in @('last_active_at', 'updated_at')) {
+                    if ($sum.PSObject.Properties.Name -contains $field) {
+                        $when = Convert-GrokTime ([string]$sum.$field)
+                        if ($when) { break }
+                    }
+                }
+            }
+            if (-not $when) { $when = [datetimeoffset](Get-Item -LiteralPath $sumPath).LastWriteTime }
+        }
+        $updWrite = $null
+        if (Test-Path -LiteralPath $updPath) { $updWrite = (Get-Item -LiteralPath $updPath).LastWriteTime }
+        if ($updWrite -and ((-not $when) -or ([datetimeoffset]$updWrite -gt $when))) {
+            $when = [datetimeoffset]$updWrite
+        }
+        if (-not $when) { continue }
+        if ($when -gt $bestTime) {
+            $bestTime = $when
+            $progress = 0
+            $sig = $null
+            if (Test-Path -LiteralPath $sigPath) { $sig = Read-JsonFile $sigPath }
+            if ($sig -and $sig.PSObject.Properties.Name -contains 'contextWindowUsage') {
+                try { $progress = [int]$sig.contextWindowUsage } catch { $progress = 0 }
+            }
+            $title = $null
+            if ($sum) {
+                foreach ($field in @('generated_title', 'session_summary', 'last_turn_summary')) {
+                    if ($sum.PSObject.Properties.Name -contains $field -and $sum.$field) {
+                        $title = Sanitize-Title ([string]$sum.$field)
+                        if ($title) { break }
+                    }
+                }
+            }
+            $detail = $null
+            if ($sum -and $sum.PSObject.Properties.Name -contains 'last_turn_summary' -and $sum.last_turn_summary) {
+                $detail = Sanitize-Title ([string]$sum.last_turn_summary)
+            }
+            $best = [pscustomobject]@{
+                When     = $when
+                UpdWrite = $updWrite
+                Title    = $title
+                Detail   = $detail
+                Progress = $progress
+            }
+        }
+    }
+    return $best
+}
+
+function Get-LiveGrokWindows {
+    Ensure-ProcessCwdType
+    if ($null -eq $script:watchMemory) { $script:watchMemory = @{} }
+    $now = [datetime]::Now
+    $exe = Get-GrokExe
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $rows = @()
+
+    foreach ($p in Get-CimInstance Win32_Process -Filter "Name='grok.exe'" -ErrorAction SilentlyContinue) {
+        $path = [string]$p.ExecutablePath
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+        if ($path -match 'Grok Bot') { continue }
+        if ($exe -and -not [string]::Equals($path, $exe, [StringComparison]::OrdinalIgnoreCase)) { continue }
+
+        $procId = [int]$p.ProcessId
+        $seen.Add([string]$procId) | Out-Null
+        $cwd = $null
+        try { $cwd = [ProcessCwd]::Get($procId) } catch { $cwd = $null }
+        $started = $null
+        try {
+            if ($p.CreationDate) { $started = [System.Management.ManagementDateTimeConverter]::ToDateTime($p.CreationDate) }
+        } catch { }
+
+        $meta = $null
+        if ($cwd) { $meta = Find-LatestSessionForCwd $cwd }
+        $leaf = if ($cwd) { Split-Path $cwd -Leaf } else { ('PID {0}' -f $procId) }
+
+        $fileAgeSec = 9999
+        if ($meta -and $meta.UpdWrite) { $fileAgeSec = ([datetime]::Now - $meta.UpdWrite).TotalSeconds }
+        $procAgeSec = 9999
+        if ($started) { $procAgeSec = ([datetime]::Now - $started).TotalSeconds }
+
+        $mem = $script:watchMemory[$procId]
+        if (-not $mem) {
+            $mem = @{ WasWorking = $false; FirstSeen = $now }
+            $script:watchMemory[$procId] = $mem
+        }
+        $kind = 'idle'
+        if ($procAgeSec -lt 25) {
+            $kind = 'created'
+        } elseif ($fileAgeSec -lt 14) {
+            $kind = 'working'
+            $mem.WasWorking = $true
+        } elseif ($mem.WasWorking -and $fileAgeSec -lt 150) {
+            $kind = 'done'
+        } else {
+            $kind = 'idle'
+            if ($fileAgeSec -gt 180) { $mem.WasWorking = $false }
+        }
+
+        $detail = $null
+        switch ($kind) {
+            'created' { $detail = '新窗口刚打开' }
+            'working' { $detail = '正在跑这一轮任务' }
+            'done'    { $detail = '这一轮已经写完，窗口还在' }
+            default   { $detail = '停在提示符，等你说话' }
+        }
+        if ($meta -and $meta.Detail -and $kind -ne 'created') { $detail = $meta.Detail }
+
+        $rows += [pscustomobject]@{
+            Pid      = $procId
+            Label    = $leaf
+            Path     = $(if ($cwd) { $cwd } else { '' })
+            Kind     = $kind
+            Title    = $(if ($meta -and $meta.Title) { $meta.Title } else { 'Grok 会话' })
+            Progress = $(if ($meta) { [int]$meta.Progress } else { 0 })
+            AgeText  = Format-RunAge $started
+            Detail   = $detail
+        }
+    }
+
+    $forget = @()
+    foreach ($key in @($script:watchMemory.Keys)) {
+        if (-not $seen.Contains([string]$key)) { $forget += $key }
+    }
+    foreach ($key in $forget) { $script:watchMemory.Remove($key) }
+    return $rows
+}
+
 function Format-Ago {
     param($When)
     if (-not $When) { return '' }
@@ -374,6 +596,15 @@ function Open-GrokProjects {
     }
 }
 
+if ($WatchList) {
+    if ($script:DemoMode) {
+        Get-DemoLiveWindows | Format-Table Pid, Kind, Label, Progress, Detail -AutoSize
+    } else {
+        Get-LiveGrokWindows | Format-Table Pid, Kind, Label, Progress, Path -AutoSize
+    }
+    exit 0
+}
+
 if ($ListOnly) {
     $cfg = Read-LauncherConfig
     $rows = Sort-Projects -Projects (Get-GrokRecentProjects) -Pins $cfg.pins
@@ -411,6 +642,7 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     [void]$argList.Add($PSCommandPath)
     if ($Demo) { [void]$argList.Add('-Demo') }
     if ($Screenshot) { [void]$argList.Add('-Screenshot') }
+    if ($ScreenshotWatch) { [void]$argList.Add('-ScreenshotWatch') }
     Start-Process -FilePath 'powershell.exe' -ArgumentList $argList.ToArray() | Out-Null
     exit 0
 }
@@ -553,6 +785,26 @@ public static class UiUtil {
     $btnAbout.Anchor = 'Top,Right'
     $btnAbout.Cursor = [System.Windows.Forms.Cursors]::Hand
     $header.Controls.Add($btnAbout)
+
+    function New-TabButton {
+        param([string]$Text)
+        $b = New-Object System.Windows.Forms.Button
+        $b.Text = $Text
+        $b.FlatStyle = 'Flat'
+        $b.FlatAppearance.BorderSize = 0
+        $b.FlatAppearance.MouseOverBackColor = $hover
+        $b.BackColor = $bg
+        $b.ForeColor = $muted
+        $b.Width = 64
+        $b.Height = 28
+        $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $b.Font = $uiFont
+        $header.Controls.Add($b)
+        return $b
+    }
+    $tabProjects = New-TabButton '项目'
+    $tabWatch = New-TabButton '监视'
+    $tabProjects.ForeColor = $accent
 
     $toolbar = New-Object System.Windows.Forms.Panel
     $toolbar.SetBounds(0, 78, 1020, 58)
@@ -705,9 +957,46 @@ public static class UiUtil {
     $empty.Visible = $false
     $form.Controls.Add($empty)
 
+    $pageWatch = New-Object System.Windows.Forms.Panel
+    $pageWatch.Dock = 'Fill'
+    $pageWatch.BackColor = $bg
+    $pageWatch.Visible = $false
+    $form.Controls.Add($pageWatch)
+
+    $watchHint = New-Object System.Windows.Forms.Label
+    $watchHint.Dock = 'Top'
+    $watchHint.Height = 28
+    $watchHint.ForeColor = $muted
+    $watchHint.Font = $smallFont
+    $watchHint.Padding = New-Object System.Windows.Forms.Padding(22, 6, 8, 0)
+    $watchHint.Text = '正在跑的窗口会列在这里。任务开始转圈，写完打勾。'
+    $pageWatch.Controls.Add($watchHint)
+
+    $watchFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+    $watchFlow.Dock = 'Fill'
+    $watchFlow.AutoScroll = $true
+    $watchFlow.WrapContents = $false
+    $watchFlow.FlowDirection = 'TopDown'
+    $watchFlow.BackColor = $bg
+    $watchFlow.Padding = New-Object System.Windows.Forms.Padding(16, 4, 8, 8)
+    $pageWatch.Controls.Add($watchFlow)
+
+    $watchEmpty = New-Object System.Windows.Forms.Label
+    $watchEmpty.Text = "现在没有正在运行的 Grok 窗口`r`n用「新开」或「文件夹」打开之后，会出现在这里"
+    $watchEmpty.TextAlign = 'MiddleCenter'
+    $watchEmpty.ForeColor = $muted
+    $watchEmpty.BackColor = $bg
+    $watchEmpty.Dock = 'Fill'
+    $watchEmpty.Visible = $false
+    $pageWatch.Controls.Add($watchEmpty)
+
     function Layout-Buttons {
         $btnAbout.Left = $header.ClientSize.Width - 90
         $btnAbout.Top = 22
+        $tabWatch.Left = $btnAbout.Left - 72
+        $tabWatch.Top = 22
+        $tabProjects.Left = $tabWatch.Left - 64
+        $tabProjects.Top = 22
         $right = $toolbar.ClientSize.Width - 18
         foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnNew, $btnContinue)) {
             $right -= $b.Width
@@ -932,6 +1221,224 @@ public static class UiUtil {
         }
     }
 
+    $script:watchCards = @{}
+    $script:spinAngle = 0
+    $script:activePage = 'projects'
+    $kindLabel = @{
+        created = '刚创建'
+        working = '进行中'
+        done    = '刚完成'
+        idle    = '空闲'
+    }
+    $kindColor = @{
+        created = $accent
+        working = $accent
+        done    = [System.Drawing.Color]::FromArgb(92, 168, 112)
+        idle    = $muted
+    }
+
+    function New-StatusIcon {
+        param([string]$Kind, [int]$Angle = 0, [int]$Size = 42)
+        $bmp = New-Object System.Drawing.Bitmap $Size, $Size
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.SmoothingMode = 'AntiAlias'
+        $g.Clear([System.Drawing.Color]::FromArgb(26, 24, 21))
+        $rect = New-Object System.Drawing.Rectangle 4, 4, ($Size - 9), ($Size - 9)
+        $cx = [int]($Size / 2)
+        $cy = [int]($Size / 2)
+        switch ($Kind) {
+            'created' {
+                $pen = New-Object System.Drawing.Pen($accent, 2.2)
+                $g.DrawEllipse($pen, $rect)
+                $pen.Dispose()
+                $br = New-Object System.Drawing.SolidBrush $accent
+                $g.FillRectangle($br, $cx - 2, 12, 4, $Size - 24)
+                $g.FillRectangle($br, 12, $cy - 2, $Size - 24, 4)
+                $br.Dispose()
+            }
+            'working' {
+                $track = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(60, 52, 40), 3)
+                $g.DrawEllipse($track, $rect)
+                $track.Dispose()
+                $pen = New-Object System.Drawing.Pen($accent, 3)
+                $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+                $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+                $g.DrawArc($pen, $rect, $Angle, 110)
+                $pen.Dispose()
+            }
+            'done' {
+                $br = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(72, 148, 96))
+                $g.FillEllipse($br, $rect)
+                $br.Dispose()
+                $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(18, 28, 16), 2.8)
+                $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+                $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+                $g.DrawLine($pen, [int]($Size * 0.28), [int]($Size * 0.52), [int]($Size * 0.44), [int]($Size * 0.70))
+                $g.DrawLine($pen, [int]($Size * 0.44), [int]($Size * 0.70), [int]($Size * 0.74), [int]($Size * 0.32))
+                $pen.Dispose()
+            }
+            default {
+                $pen = New-Object System.Drawing.Pen($muted, 2.2)
+                $g.DrawEllipse($pen, $rect)
+                $pen.Dispose()
+                $br = New-Object System.Drawing.SolidBrush $muted
+                $g.FillEllipse($br, $cx - 3, $cy - 3, 6, 6)
+                $br.Dispose()
+            }
+        }
+        $g.Dispose()
+        return $bmp
+    }
+
+    function Set-CardIcon {
+        param($Pic, [string]$Kind)
+        $old = $Pic.Image
+        $Pic.Image = New-StatusIcon -Kind $Kind -Angle $script:spinAngle
+        if ($old) { $old.Dispose() }
+    }
+
+    function New-WatchCard {
+        param($Row)
+        $card = New-Object System.Windows.Forms.Panel
+        $card.Height = 78
+        $card.Width = 920
+        $card.BackColor = $panel
+        $card.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 8)
+        $card.Tag = $Row.Pid
+
+        $pic = New-Object System.Windows.Forms.PictureBox
+        $pic.SetBounds(12, 18, 42, 42)
+        $pic.SizeMode = 'StretchImage'
+        $card.Controls.Add($pic)
+        Set-CardIcon $pic $Row.Kind
+
+        $name = New-Object System.Windows.Forms.Label
+        $name.Font = $rowFont
+        $name.ForeColor = $text
+        $name.AutoSize = $true
+        $name.Location = New-Object System.Drawing.Point(66, 10)
+        $card.Controls.Add($name)
+
+        $badge = New-Object System.Windows.Forms.Label
+        $badge.Font = $smallFont
+        $badge.AutoSize = $true
+        $badge.Location = New-Object System.Drawing.Point(220, 12)
+        $card.Controls.Add($badge)
+
+        $sub = New-Object System.Windows.Forms.Label
+        $sub.Font = $smallFont
+        $sub.ForeColor = $muted
+        $sub.AutoSize = $true
+        $sub.Location = New-Object System.Drawing.Point(66, 34)
+        $card.Controls.Add($sub)
+
+        $barBack = New-Object System.Windows.Forms.Panel
+        $barBack.SetBounds(66, 58, 620, 5)
+        $barBack.BackColor = [System.Drawing.Color]::FromArgb(40, 36, 30)
+        $card.Controls.Add($barBack)
+        $barFill = New-Object System.Windows.Forms.Panel
+        $barFill.Height = 5
+        $barFill.Top = 0
+        $barFill.Left = 0
+        $barFill.BackColor = $accent
+        $barBack.Controls.Add($barFill)
+
+        $watchFlow.Controls.Add($card)
+        $info = @{
+            Panel = $card; Pic = $pic; Name = $name; Badge = $badge
+            Sub = $sub; Bar = $barFill; BarBack = $barBack; Kind = $Row.Kind
+        }
+        $script:watchCards[$Row.Pid] = $info
+        Update-WatchCard $Row
+        return $info
+    }
+
+    function Update-WatchCard {
+        param($Row)
+        $info = $script:watchCards[$Row.Pid]
+        if (-not $info) { return }
+        $info.Name.Text = $Row.Label
+        $info.Badge.Text = $kindLabel[$Row.Kind]
+        $info.Badge.ForeColor = $kindColor[$Row.Kind]
+        $info.Badge.Left = $info.Name.Right + 12
+        $line2 = @($Row.AgeText, ('PID {0}' -f $Row.Pid), $Row.Detail) | Where-Object { $_ }
+        $info.Sub.Text = ($line2 -join '  ·  ')
+        $pct = [Math]::Max(0, [Math]::Min(100, [int]$Row.Progress))
+        $info.Bar.Width = [int](($info.BarBack.Width * $pct) / 100)
+        $info.Bar.BackColor = $(if ($Row.Kind -eq 'done') { $kindColor.done } else { $accent })
+        if ($info.Kind -ne $Row.Kind -or $Row.Kind -eq 'working') {
+            Set-CardIcon $info.Pic $Row.Kind
+            $info.Kind = $Row.Kind
+        }
+        $w = [Math]::Max(640, $watchFlow.ClientSize.Width - 28)
+        $info.Panel.Width = $w
+        $info.BarBack.Width = [Math]::Max(200, $w - 90)
+        $info.Bar.Width = [int](($info.BarBack.Width * $pct) / 100)
+    }
+
+    function Sync-WatchCards {
+        $rows = if ($script:DemoMode) { @(Get-DemoLiveWindows) } else { @(Get-LiveGrokWindows) }
+        $live = New-Object 'System.Collections.Generic.HashSet[int]'
+        foreach ($row in $rows) {
+            [void]$live.Add([int]$row.Pid)
+            if (-not $script:watchCards.Contains($row.Pid)) {
+                New-WatchCard $row | Out-Null
+            } else {
+                Update-WatchCard $row
+            }
+        }
+        $dead = @()
+        foreach ($cardId in @($script:watchCards.Keys)) {
+            if (-not $live.Contains([int]$cardId)) { $dead += $cardId }
+        }
+        foreach ($cardId in $dead) {
+            $info = $script:watchCards[$cardId]
+            if ($info.Pic.Image) { $info.Pic.Image.Dispose() }
+            $watchFlow.Controls.Remove($info.Panel)
+            $info.Panel.Dispose()
+            $script:watchCards.Remove($cardId)
+        }
+        $n = $rows.Count
+        $working = @($rows | Where-Object { $_.Kind -eq 'working' }).Count
+        $done = @($rows | Where-Object { $_.Kind -eq 'done' }).Count
+        $created = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
+        $watchHint.Text = ('{0} 个窗口在跑    进行中 {1}    刚完成 {2}    刚创建 {3}      任务一开始转圈，写完变成勾' -f $n, $working, $done, $created)
+        $watchEmpty.Visible = ($n -eq 0)
+        if ($watchEmpty.Visible) { $watchEmpty.BringToFront() } else { $watchFlow.BringToFront() }
+        $status.Text = $watchHint.Text
+    }
+
+    function Show-ProjectsPage {
+        $script:activePage = 'projects'
+        $pageWatch.Visible = $false
+        $grid.Visible = $true
+        $toolbar.Visible = $true
+        $topStack.Height = 136
+        $title.Text = '最近的 Grok 项目'
+        $subtitle.Text = '从本机会话找回目录 · 多选后一次在 Windows Terminal 打开'
+        $tabProjects.ForeColor = $accent
+        $tabWatch.ForeColor = $muted
+        Show-Rows
+        $status.Text = '双击续上  ·  Enter 打开  ·  文件夹 = 选路径后新开 Grok'
+    }
+
+    function Show-WatchPage {
+        $script:activePage = 'watch'
+        $grid.Visible = $false
+        $empty.Visible = $false
+        $toolbar.Visible = $false
+        $topStack.Height = 78
+        $pageWatch.Visible = $true
+        $pageWatch.BringToFront()
+        $title.Text = '监视 Grok 窗口'
+        $subtitle.Text = '多开窗口会列在这里 · 任务开始和结束会换图标'
+        $tabProjects.ForeColor = $muted
+        $tabWatch.ForeColor = $accent
+        $form.Height = [Math]::Max($form.Height, 560)
+        Sync-WatchCards
+        Layout-Buttons
+    }
+
     function Toggle-Pin {
         param([string]$Path)
         $kept = @()
@@ -972,6 +1479,8 @@ public static class UiUtil {
     $btnTerm.Add_Click({ Invoke-Open 'terminal' })
     $btnFolder.Add_Click({ Invoke-PickDirectoryAndNew })
     $btnRefresh.Add_Click({ Reload-Projects })
+    $tabProjects.Add_Click({ Show-ProjectsPage })
+    $tabWatch.Add_Click({ Show-WatchPage })
 
     $grid.Add_CellDoubleClick({
             param($sender, $e)
@@ -1044,13 +1553,43 @@ public static class UiUtil {
             }
         })
 
+    $scanTimer = New-Object System.Windows.Forms.Timer
+    $scanTimer.Interval = 1500
+    $scanTimer.Add_Tick({
+            if ($script:activePage -eq 'watch') { Sync-WatchCards }
+        })
+    $scanTimer.Start()
+    $spinTimer = New-Object System.Windows.Forms.Timer
+    $spinTimer.Interval = 90
+    $spinTimer.Add_Tick({
+            if ($script:activePage -ne 'watch') { return }
+            $script:spinAngle = ($script:spinAngle + 24) % 360
+            foreach ($info in @($script:watchCards.Values)) {
+                if ($info.Kind -eq 'working') { Set-CardIcon $info.Pic 'working' }
+            }
+        })
+    $spinTimer.Start()
+    $form.Add_FormClosing({
+            $scanTimer.Stop(); $spinTimer.Stop()
+            foreach ($info in @($script:watchCards.Values)) {
+                if ($info.Pic.Image) { $info.Pic.Image.Dispose() }
+            }
+        })
+
     $form.Add_Shown({
             try {
                 $form.Activate()
                 Reload-Projects
-                if (-not $script:ScreenshotMode) { $search.Focus() }
+                if ($script:ScreenshotWatchMode) { Show-WatchPage }
+                elseif (-not $script:ScreenshotMode) { $search.Focus() }
             } catch {
-                [System.Windows.Forms.MessageBox]::Show($_.Exception.ToString(), '加载项目列表失败') | Out-Null
+                try {
+                    $errPath = Join-Path $script:Root 'docs\last-ui-error.txt'
+                    [System.IO.File]::WriteAllText($errPath, $_.Exception.ToString())
+                } catch { }
+                if (-not $script:ScreenshotMode) {
+                    [System.Windows.Forms.MessageBox]::Show($_.Exception.ToString(), '加载项目列表失败') | Out-Null
+                }
             } finally {
                 if (-not $script:ScreenshotMode) { $form.TopMost = $false }
             }
@@ -1062,8 +1601,8 @@ public static class UiUtil {
                 if (-not (Test-Path -LiteralPath $outDir)) {
                     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
                 }
-                $outPath = Join-Path $outDir 'screenshot.png'
-                # Draw the form itself — never CopyFromScreen (that could leak the real desktop).
+                $name = if ($script:ScreenshotWatchMode) { 'watch.png' } else { 'screenshot.png' }
+                $outPath = Join-Path $outDir $name
                 $bmp = New-Object System.Drawing.Bitmap $form.ClientSize.Width, $form.ClientSize.Height
                 $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle 0, 0, $form.ClientSize.Width, $form.ClientSize.Height))
                 $bmp.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
