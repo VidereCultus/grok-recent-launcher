@@ -34,6 +34,15 @@ if (-not (Test-Path -LiteralPath $script:DataDir)) {
 }
 $script:ConfigPath = Join-Path $script:DataDir 'config.json'
 $script:ErrorLog = Join-Path $script:DataDir 'last-error.log'
+$script:watchMemory = @{}
+$script:watchCards = @{}
+$script:activePage = 'dash'
+$script:spinAngle = 0
+$script:chartHover = -1
+$script:lastUsage = $null
+$script:chartGeom = $null
+$script:recentPaths = @()
+$script:dashTopPaths = @()
 
 $legacyConfig = Join-Path $script:Root 'config.json'
 if (-not (Test-Path -LiteralPath $script:ConfigPath) -and (Test-Path -LiteralPath $legacyConfig)) {
@@ -601,6 +610,7 @@ function Find-LatestSessionForCwd {
 function Get-LiveGrokWindows {
     Ensure-ProcessCwdType
     if ($null -eq $script:watchMemory) { $script:watchMemory = @{} }
+    if ($script:watchMemory -isnot [hashtable]) { $script:watchMemory = @{} }
     $now = [datetime]::Now
     $exe = Get-GrokExe
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
