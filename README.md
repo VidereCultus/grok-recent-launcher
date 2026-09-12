@@ -12,6 +12,8 @@ Windows 小工具：从本机 Grok 会话记录里找回用过的项目目录，
 
 ![监视页](docs/watch.png)
 
+![仪表盘](docs/dashboard.png)
+
 [English](#grok-recent-project-launcher)
 
 ## 功能
@@ -23,6 +25,7 @@ Windows 小工具：从本机 Grok 会话记录里找回用过的项目目录，
 - **文件夹** = 选择任意路径后新开 Grok（不是只打开资源管理器）
 - **终端**；右键可「打开文件夹」用资源管理器打开
 - **监视**页：看当前多开的 Grok 窗口。刚创建 / 进行中 / 刚完成 / 空闲用不同图标
+- **仪表盘**（启动首页）：Token 用量以百万（M）计，可按今天 / 7 天 / 30 天 / 全部查看；一键打开最近 N 个常用目录
 - 搜索、置顶、右键菜单
 - 无联网；偏好存在 `%APPDATA%\GrokRecentLauncher\`
 
@@ -81,6 +84,7 @@ The screenshot above uses fictional sample rows (`D:\Work\shop-web`, etc.), not 
 - **Folder** browses any path and starts a new Grok session there
 - Terminal-only; Explorer is on the right-click menu
 - **Watch** page: live Grok windows with created / working / done / idle icons
+- **Dashboard** (home): token usage in millions (M) by time range, one-click launch of the N most recent folders
 - Search, pins, context menu
 - Offline. Pins live in `%APPDATA%\GrokRecentLauncher\`
 

@@ -7,6 +7,7 @@ param(
     [switch]$Demo,
     [switch]$Screenshot,
     [switch]$ScreenshotWatch,
+    [switch]$ScreenshotDash,
     [switch]$WatchList,
     [int]$Limit = 50
 )
@@ -14,16 +15,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.3.0'
+$script:AppVersion = '1.4.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
 }
 
 # Screenshot always uses fictional rows so real project paths never land in docs/.
-$script:DemoMode = [bool]($Demo -or $Screenshot -or $ScreenshotWatch)
-$script:ScreenshotMode = [bool]($Screenshot -or $ScreenshotWatch)
+$script:DemoMode = [bool]($Demo -or $Screenshot -or $ScreenshotWatch -or $ScreenshotDash)
+$script:ScreenshotMode = [bool]($Screenshot -or $ScreenshotWatch -or $ScreenshotDash)
 $script:ScreenshotWatchMode = [bool]$ScreenshotWatch
+$script:ScreenshotDashMode = [bool]$ScreenshotDash
 
 $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:DataDir = Join-Path $env:APPDATA 'GrokRecentLauncher'
@@ -121,13 +123,17 @@ function Sanitize-Title {
 function Read-LauncherConfig {
     if ($script:DemoMode) {
         return [pscustomobject]@{
-            pins        = @('D:\Work\shop-web')
-            hideMissing = $true
+            pins             = @('D:\Work\shop-web')
+            hideMissing      = $true
+            quickLaunchCount = 5
+            usageRange       = '7d'
         }
     }
     $cfg = [pscustomobject]@{
-        pins        = @()
-        hideMissing = $true
+        pins             = @()
+        hideMissing      = $true
+        quickLaunchCount = 5
+        usageRange       = '7d'
     }
     if (-not (Test-Path -LiteralPath $script:ConfigPath)) { return $cfg }
     $json = Read-JsonFile $script:ConfigPath
@@ -138,6 +144,12 @@ function Read-LauncherConfig {
     if ($json.PSObject.Properties.Name -contains 'hideMissing') {
         $cfg.hideMissing = [bool]$json.hideMissing
     }
+    if ($json.PSObject.Properties.Name -contains 'quickLaunchCount') {
+        try { $cfg.quickLaunchCount = [Math]::Max(1, [Math]::Min(12, [int]$json.quickLaunchCount)) } catch { }
+    }
+    if ($json.PSObject.Properties.Name -contains 'usageRange' -and $json.usageRange) {
+        $cfg.usageRange = [string]$json.usageRange
+    }
     return $cfg
 }
 
@@ -145,8 +157,10 @@ function Save-LauncherConfig {
     param($Config)
     if ($script:DemoMode) { return }
     $payload = @{
-        pins        = @($Config.pins)
-        hideMissing = [bool]$Config.hideMissing
+        pins             = @($Config.pins)
+        hideMissing      = [bool]$Config.hideMissing
+        quickLaunchCount = [int]$Config.quickLaunchCount
+        usageRange       = [string]$Config.usageRange
     } | ConvertTo-Json -Depth 4
     $utf8 = New-Object System.Text.UTF8Encoding $true
     [System.IO.File]::WriteAllText($script:ConfigPath, $payload, $utf8)
@@ -283,6 +297,154 @@ function Get-DemoLiveWindows {
             Title = 'Add a doctor command'; Progress = 21; AgeText = '跑了 1 小时'; Detail = '停在提示符，等你说话'
         }
     )
+}
+
+function Format-TokenM {
+    param($Tokens)
+    $n = 0.0
+    try { $n = [double]$Tokens } catch { $n = 0.0 }
+    return ('{0:N2} M' -f ($n / 1000000.0))
+}
+
+function Get-RangeStart {
+    param([string]$Range)
+    switch ($Range) {
+        'today' { return [datetime]::Today }
+        '7d'    { return [datetime]::Today.AddDays(-6) }
+        '30d'   { return [datetime]::Today.AddDays(-29) }
+        default { return [datetime]'2000-01-01' }
+    }
+}
+
+function Get-DemoUsageSnapshot {
+    param([string]$Range = '7d')
+    $days = @()
+    $total = 0L
+    for ($i = 6; $i -ge 0; $i--) {
+        $d = [datetime]::Today.AddDays(-1 * $i)
+        $v = [int64]((0.35 + ($i % 3) * 0.22 + 0.08 * $i) * 1000000)
+        if ($Range -eq 'today' -and $i -ne 0) { $v = [int64]0 }
+        $total += $v
+        $days += [pscustomobject]@{ Date = $d; Total = $v }
+    }
+    if ($Range -eq 'today') { $total = $days[-1].Total }
+    if ($Range -eq '30d') { $total = [int64]($total * 3.4) }
+    if ($Range -eq 'all') { $total = [int64]($total * 8.1) }
+    $inp = [int64]($total * 0.78)
+    $outp = [int64]($total * 0.04)
+    $cache = [int64]($total * 0.62)
+    $top = @(
+        [pscustomobject]@{ Label = 'shop-web'; Path = 'D:\Work\shop-web'; Tokens = [int64]($total * 0.31); Sessions = 12 }
+        [pscustomobject]@{ Label = 'notes-app'; Path = 'D:\Work\notes-app'; Tokens = [int64]($total * 0.24); Sessions = 8 }
+        [pscustomobject]@{ Label = 'wiki-site'; Path = 'D:\Work\wiki-site'; Tokens = [int64]($total * 0.18); Sessions = 5 }
+        [pscustomobject]@{ Label = 'cli-tools'; Path = 'D:\Work\cli-tools'; Tokens = [int64]($total * 0.11); Sessions = 4 }
+    )
+    return [pscustomobject]@{
+        Range     = $Range
+        Total     = $total
+        Input     = $inp
+        Output    = $outp
+        Cached    = $cache
+        Sessions  = 29
+        Windows   = 4
+        Days      = $days
+        TopDirs   = $top
+        Model     = 'grok-4.6'
+    }
+}
+
+function Get-UsageSnapshot {
+    param([string]$Range = '7d')
+    if ($script:DemoMode) { return Get-DemoUsageSnapshot -Range $Range }
+    $from = Get-RangeStart $Range
+    $sessionsRoot = Join-Path $env:USERPROFILE '.grok\sessions'
+    $total = [int64]0; $inp = [int64]0; $outp = [int64]0; $cache = [int64]0
+    $sessCount = 0
+    $dayMap = @{}
+    $dirMap = @{}
+    $model = ''
+    if (Test-Path -LiteralPath $sessionsRoot) {
+        foreach ($group in Get-ChildItem -LiteralPath $sessionsRoot -Directory -ErrorAction SilentlyContinue) {
+            $cwd = Convert-SessionCwd -EncodedName $group.Name -GroupPath $group.FullName
+            foreach ($sessionDir in Get-ChildItem -LiteralPath $group.FullName -Directory -ErrorAction SilentlyContinue) {
+                $usagePath = Join-Path $sessionDir.FullName 'usage.json'
+                if (-not (Test-Path -LiteralPath $usagePath)) { continue }
+                $u = Read-JsonFile $usagePath
+                if (-not $u) { continue }
+                $when = $null
+                if ($u.PSObject.Properties.Name -contains 'updatedAt') {
+                    $when = Convert-GrokTime ([string]$u.updatedAt)
+                }
+                $localDay = $null
+                if ($when) { $localDay = $when.ToLocalTime().DateTime.Date }
+                else { $localDay = (Get-Item -LiteralPath $usagePath).LastWriteTime.Date }
+                if ($localDay -lt $from) { continue }
+                $sess = $null
+                if ($u.PSObject.Properties.Name -contains 'session') { $sess = $u.session }
+                if (-not $sess) { continue }
+                $t = [int64]0; $i = [int64]0; $o = [int64]0; $c = [int64]0
+                try { if ($sess.totalTokens) { $t = [int64]$sess.totalTokens } } catch { }
+                try { if ($sess.inputTokens) { $i = [int64]$sess.inputTokens } } catch { }
+                try { if ($sess.outputTokens) { $o = [int64]$sess.outputTokens } } catch { }
+                try { if ($sess.cachedReadTokens) { $c = [int64]$sess.cachedReadTokens } } catch { }
+                if ($t -le 0) { continue }
+                $sessCount += 1
+                $total += $t; $inp += $i; $outp += $o; $cache += $c
+                $dayKey = $localDay.ToString('yyyy-MM-dd')
+                if (-not $dayMap.Contains($dayKey)) { $dayMap[$dayKey] = [int64]0 }
+                $dayMap[$dayKey] = [int64]$dayMap[$dayKey] + $t
+                $dirKey = $cwd
+                if ([string]::IsNullOrWhiteSpace($dirKey)) { $dirKey = '(unknown)' }
+                if (-not $dirMap.Contains($dirKey)) {
+                    $dirMap[$dirKey] = @{ Tokens = [int64]0; Sessions = 0 }
+                }
+                $dirMap[$dirKey].Tokens = [int64]$dirMap[$dirKey].Tokens + $t
+                $dirMap[$dirKey].Sessions += 1
+                if (-not $model -and $sess.PSObject.Properties.Name -contains 'primaryModelId' -and $sess.primaryModelId) {
+                    $model = [string]$sess.primaryModelId
+                }
+            }
+        }
+    }
+    $chartFrom = $from
+    if ($Range -eq 'all' -or $Range -eq '30d') { $chartFrom = [datetime]::Today.AddDays(-13) }
+    if ($Range -eq 'today') { $chartFrom = [datetime]::Today.AddDays(-6) }
+    $days = @()
+    for ($d = $chartFrom; $d -le [datetime]::Today; $d = $d.AddDays(1)) {
+        $k = $d.ToString('yyyy-MM-dd')
+        $v = [int64]0
+        if ($dayMap.Contains($k)) { $v = [int64]$dayMap[$k] }
+        $days += [pscustomobject]@{ Date = $d; Total = $v }
+    }
+    $top = @()
+    foreach ($k in $dirMap.Keys) {
+        $leaf = Split-Path $k -Leaf
+        if ([string]::IsNullOrWhiteSpace($leaf)) { $leaf = $k }
+        $top += [pscustomobject]@{
+            Label    = $leaf
+            Path     = $k
+            Tokens   = [int64]$dirMap[$k].Tokens
+            Sessions = [int]$dirMap[$k].Sessions
+        }
+    }
+    $top = @($top | Sort-Object Tokens -Descending | Select-Object -First 6)
+    $win = 0
+    try {
+        $win = @(Get-CimInstance Win32_Process -Filter "Name='grok.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.ExecutablePath -and $_.ExecutablePath -notmatch 'Grok Bot' }).Count
+    } catch { $win = 0 }
+    return [pscustomobject]@{
+        Range    = $Range
+        Total    = $total
+        Input    = $inp
+        Output   = $outp
+        Cached   = $cache
+        Sessions = $sessCount
+        Windows  = $win
+        Days     = $days
+        TopDirs  = $top
+        Model    = $model
+    }
 }
 
 function Ensure-ProcessCwdType {
@@ -643,6 +805,7 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     if ($Demo) { [void]$argList.Add('-Demo') }
     if ($Screenshot) { [void]$argList.Add('-Screenshot') }
     if ($ScreenshotWatch) { [void]$argList.Add('-ScreenshotWatch') }
+    if ($ScreenshotDash) { [void]$argList.Add('-ScreenshotDash') }
     Start-Process -FilePath 'powershell.exe' -ArgumentList $argList.ToArray() | Out-Null
     exit 0
 }
@@ -715,8 +878,8 @@ public static class UiUtil {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'Grok 最近项目'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object System.Drawing.Size(1020, 560)
-    $form.MinimumSize = New-Object System.Drawing.Size(860, 420)
+    $form.Size = New-Object System.Drawing.Size(1100, 680)
+    $form.MinimumSize = New-Object System.Drawing.Size(920, 520)
     $form.BackColor = $bg
     $form.ForeColor = $text
     $form.Font = $uiFont
@@ -795,16 +958,18 @@ public static class UiUtil {
         $b.FlatAppearance.MouseOverBackColor = $hover
         $b.BackColor = $bg
         $b.ForeColor = $muted
-        $b.Width = 64
+        $b.Width = 70
         $b.Height = 28
         $b.Cursor = [System.Windows.Forms.Cursors]::Hand
         $b.Font = $uiFont
         $header.Controls.Add($b)
         return $b
     }
+    $tabDash = New-TabButton '仪表盘'
+    $tabDash.Width = 76
     $tabProjects = New-TabButton '项目'
     $tabWatch = New-TabButton '监视'
-    $tabProjects.ForeColor = $accent
+    $tabDash.ForeColor = $accent
 
     $toolbar = New-Object System.Windows.Forms.Panel
     $toolbar.SetBounds(0, 78, 1020, 58)
@@ -990,13 +1155,163 @@ public static class UiUtil {
     $watchEmpty.Visible = $false
     $pageWatch.Controls.Add($watchEmpty)
 
+    $pageDash = New-Object System.Windows.Forms.Panel
+    $pageDash.Dock = 'Fill'
+    $pageDash.BackColor = $bg
+    $pageDash.AutoScroll = $true
+    $pageDash.Visible = $false
+    $form.Controls.Add($pageDash)
+
+    $dashInner = New-Object System.Windows.Forms.Panel
+    $dashInner.Location = New-Object System.Drawing.Point(0, 0)
+    $dashInner.Size = New-Object System.Drawing.Size(1080, 820)
+    $dashInner.BackColor = $bg
+    $pageDash.Controls.Add($dashInner)
+
+    $rangeHost = New-Object System.Windows.Forms.Panel
+    $rangeHost.SetBounds(20, 10, 1040, 36)
+    $rangeHost.BackColor = $bg
+    $dashInner.Controls.Add($rangeHost)
+    $rangeLabel = New-Object System.Windows.Forms.Label
+    $rangeLabel.Text = '用量时间'
+    $rangeLabel.ForeColor = $muted
+    $rangeLabel.Font = $smallFont
+    $rangeLabel.AutoSize = $true
+    $rangeLabel.Location = New-Object System.Drawing.Point(0, 8)
+    $rangeHost.Controls.Add($rangeLabel)
+
+    $script:rangeButtons = @{}
+    $rx = 70
+    $rangeDefs = @(
+        [pscustomobject]@{ Key = 'today'; Text = '今天' }
+        [pscustomobject]@{ Key = '7d'; Text = '近 7 天' }
+        [pscustomobject]@{ Key = '30d'; Text = '近 30 天' }
+        [pscustomobject]@{ Key = 'all'; Text = '全部' }
+    )
+    foreach ($def in $rangeDefs) {
+        $rb = New-Object System.Windows.Forms.Button
+        $rb.Text = $def.Text
+        $rb.Tag = $def.Key
+        $rb.FlatStyle = 'Flat'
+        $rb.FlatAppearance.BorderSize = 1
+        $rb.FlatAppearance.BorderColor = $line
+        $rb.BackColor = $panel
+        $rb.ForeColor = $text
+        $rb.Width = 78
+        $rb.Height = 28
+        $rb.Left = $rx
+        $rb.Top = 2
+        $rb.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $rangeHost.Controls.Add($rb)
+        $script:rangeButtons[$def.Key] = $rb
+        $rx += 86
+    }
+
+    function New-StatCard {
+        param([int]$X, [string]$Caption)
+        $card = New-Object System.Windows.Forms.Panel
+        $card.SetBounds($X, 54, 250, 92)
+        $card.BackColor = $panel
+        $dashInner.Controls.Add($card)
+        $cap = New-Object System.Windows.Forms.Label
+        $cap.Text = $Caption
+        $cap.ForeColor = $muted
+        $cap.Font = $smallFont
+        $cap.Location = New-Object System.Drawing.Point(16, 12)
+        $cap.AutoSize = $true
+        $card.Controls.Add($cap)
+        $val = New-Object System.Windows.Forms.Label
+        $val.Text = '0.00 M'
+        $val.ForeColor = $accent
+        $val.Font = $titleFont
+        $val.Location = New-Object System.Drawing.Point(14, 36)
+        $val.AutoSize = $true
+        $card.Controls.Add($val)
+        return $val
+    }
+    $valTotal = New-StatCard 20 'Token 总量'
+    $valIn = New-StatCard 284 '输入'
+    $valOut = New-StatCard 548 '输出'
+    $valSess = New-StatCard 812 '会话 / 窗口'
+
+    $chartBox = New-Object System.Windows.Forms.PictureBox
+    $chartBox.SetBounds(20, 156, 1044, 118)
+    $chartBox.BackColor = $panel
+    $chartBox.SizeMode = 'Normal'
+    $dashInner.Controls.Add($chartBox)
+
+    $quickHost = New-Object System.Windows.Forms.Panel
+    $quickHost.SetBounds(20, 286, 1044, 72)
+    $quickHost.BackColor = $panel
+    $dashInner.Controls.Add($quickHost)
+    $quickTitle = New-Object System.Windows.Forms.Label
+    $quickTitle.Text = '一键打开最近常用目录'
+    $quickTitle.ForeColor = $text
+    $quickTitle.Font = $rowFont
+    $quickTitle.Location = New-Object System.Drawing.Point(16, 12)
+    $quickTitle.AutoSize = $true
+    $quickHost.Controls.Add($quickTitle)
+    $quickHint = New-Object System.Windows.Forms.Label
+    $quickHint.Text = '数量'
+    $quickHint.ForeColor = $muted
+    $quickHint.Font = $smallFont
+    $quickHint.Location = New-Object System.Drawing.Point(16, 40)
+    $quickHint.AutoSize = $true
+    $quickHost.Controls.Add($quickHint)
+    $numQuick = New-Object System.Windows.Forms.NumericUpDown
+    $numQuick.Minimum = 1
+    $numQuick.Maximum = 12
+    $numQuick.Value = [decimal]$script:config.quickLaunchCount
+    $numQuick.Width = 56
+    $numQuick.Location = New-Object System.Drawing.Point(52, 36)
+    $numQuick.BackColor = $bg
+    $numQuick.ForeColor = $text
+    $numQuick.BorderStyle = 'FixedSingle'
+    $quickHost.Controls.Add($numQuick)
+    $btnQuick = New-Object System.Windows.Forms.Button
+    $btnQuick.Text = '一键续上'
+    $btnQuick.FlatStyle = 'Flat'
+    $btnQuick.FlatAppearance.BorderSize = 0
+    $btnQuick.BackColor = $accent
+    $btnQuick.ForeColor = $ink
+    $btnQuick.Width = 110
+    $btnQuick.Height = 32
+    $btnQuick.Location = New-Object System.Drawing.Point(122, 32)
+    $btnQuick.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $quickHost.Controls.Add($btnQuick)
+    $quickNote = New-Object System.Windows.Forms.Label
+    $quickNote.ForeColor = $muted
+    $quickNote.Font = $smallFont
+    $quickNote.Location = New-Object System.Drawing.Point(250, 38)
+    $quickNote.AutoSize = $true
+    $quickNote.Text = '按最近活动顺序打开，并继续上次会话'
+    $quickHost.Controls.Add($quickNote)
+
+    $topTitle = New-Object System.Windows.Forms.Label
+    $topTitle.Text = '用量最高的目录'
+    $topTitle.ForeColor = $muted
+    $topTitle.Font = $smallFont
+    $topTitle.Location = New-Object System.Drawing.Point(22, 368)
+    $topTitle.AutoSize = $true
+    $dashInner.Controls.Add($topTitle)
+    $topList = New-Object System.Windows.Forms.ListBox
+    $topList.SetBounds(20, 390, 1044, 140)
+    $topList.BackColor = $panel
+    $topList.ForeColor = $text
+    $topList.BorderStyle = 'None'
+    $topList.Font = $rowFont
+    $topList.IntegralHeight = $false
+    $dashInner.Controls.Add($topList)
+
     function Layout-Buttons {
         $btnAbout.Left = $header.ClientSize.Width - 90
         $btnAbout.Top = 22
-        $tabWatch.Left = $btnAbout.Left - 72
+        $tabWatch.Left = $btnAbout.Left - 76
         $tabWatch.Top = 22
-        $tabProjects.Left = $tabWatch.Left - 64
+        $tabProjects.Left = $tabWatch.Left - 70
         $tabProjects.Top = 22
+        $tabDash.Left = $tabProjects.Left - 82
+        $tabDash.Top = 22
         $right = $toolbar.ClientSize.Width - 18
         foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnNew, $btnContinue)) {
             $right -= $b.Width
@@ -1016,6 +1331,7 @@ public static class UiUtil {
     }
 
     function Fit-FormHeight {
+        if ($script:activePage -ne 'projects') { return }
         $visibleCount = $grid.Rows.Count
         $show = [Math]::Max(4, [Math]::Min(8, $visibleCount))
         if ($visibleCount -eq 0) { $show = 5 }
@@ -1416,8 +1732,10 @@ public static class UiUtil {
         $topStack.Height = 136
         $title.Text = '最近的 Grok 项目'
         $subtitle.Text = '从本机会话找回目录 · 多选后一次在 Windows Terminal 打开'
+        $tabDash.ForeColor = $muted
         $tabProjects.ForeColor = $accent
         $tabWatch.ForeColor = $muted
+        $pageDash.Visible = $false
         Show-Rows
         $status.Text = '双击续上  ·  Enter 打开  ·  文件夹 = 选路径后新开 Grok'
     }
@@ -1427,15 +1745,113 @@ public static class UiUtil {
         $grid.Visible = $false
         $empty.Visible = $false
         $toolbar.Visible = $false
+        $pageDash.Visible = $false
         $topStack.Height = 78
         $pageWatch.Visible = $true
         $pageWatch.BringToFront()
         $title.Text = '监视 Grok 窗口'
         $subtitle.Text = '多开窗口会列在这里 · 任务开始和结束会换图标'
+        $tabDash.ForeColor = $muted
         $tabProjects.ForeColor = $muted
         $tabWatch.ForeColor = $accent
         $form.Height = [Math]::Max($form.Height, 560)
         Sync-WatchCards
+        Layout-Buttons
+    }
+
+    function Draw-UsageChart {
+        param($Snap)
+        $w = [Math]::Max(200, $chartBox.Width)
+        $h = [Math]::Max(80, $chartBox.Height)
+        $bmp = New-Object System.Drawing.Bitmap $w, $h
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.SmoothingMode = 'AntiAlias'
+        $g.Clear($panel)
+        $days = @($Snap.Days)
+        $mutedBr = New-Object System.Drawing.SolidBrush $muted
+        $br = New-Object System.Drawing.SolidBrush $accent
+        if ($days.Count -eq 0) {
+            $g.DrawString('这段时间没有 usage.json 记录', $smallFont, $mutedBr, 20, 60)
+        } else {
+            $max = ($days | Measure-Object -Property Total -Maximum).Maximum
+            if ($max -le 0) { $max = 1 }
+            $padL = 18; $padB = 26; $padT = 28; $padR = 12
+            $plotW = $w - $padL - $padR
+            $plotH = $h - $padT - $padB
+            $n = $days.Count
+            $slot = $plotW / [double]$n
+            $bw = [Math]::Max(6, [int]($slot - 6))
+            $g.DrawString('每天 Token（百万）', $smallFont, $mutedBr, $padL, 6)
+            $idx = 0
+            foreach ($day in $days) {
+                $x = $padL + [int]($idx * $slot) + 2
+                $bh = [int]($plotH * ([double]$day.Total / $max))
+                if ($bh -lt 2 -and $day.Total -gt 0) { $bh = 2 }
+                $y = $padT + $plotH - $bh
+                $g.FillRectangle($br, $x, $y, $bw, $bh)
+                if ($n -le 16 -or ($idx % 2 -eq 0)) {
+                    $g.DrawString($day.Date.ToString('M/d'), $smallFont, $mutedBr, $x, $h - 22)
+                }
+                $idx++
+            }
+        }
+        $br.Dispose(); $mutedBr.Dispose(); $g.Dispose()
+        $old = $chartBox.Image
+        $chartBox.Image = $bmp
+        if ($old) { $old.Dispose() }
+    }
+
+    function Refresh-Dash {
+        $range = $script:config.usageRange
+        if (@('today', '7d', '30d', 'all') -notcontains $range) { $range = '7d' }
+        $snap = Get-UsageSnapshot -Range $range
+        $script:lastUsage = $snap
+        $valTotal.Text = Format-TokenM $snap.Total
+        $valIn.Text = Format-TokenM $snap.Input
+        $valOut.Text = Format-TokenM $snap.Output
+        $valSess.Text = ('{0} / {1}' -f $snap.Sessions, $snap.Windows)
+        foreach ($key in @($script:rangeButtons.Keys)) {
+            $b = $script:rangeButtons[$key]
+            if ($key -eq $range) {
+                $b.BackColor = $accent
+                $b.ForeColor = $ink
+            } else {
+                $b.BackColor = $panel
+                $b.ForeColor = $text
+            }
+        }
+        Draw-UsageChart $snap
+        $topList.Items.Clear()
+        $script:dashTopPaths = @()
+        foreach ($d in @($snap.TopDirs)) {
+            $line = '{0}    {1} 会话    {2}' -f $d.Label, $d.Sessions, (Format-TokenM $d.Tokens)
+            [void]$topList.Items.Add($line)
+            $script:dashTopPaths += $d.Path
+        }
+        $n = [int]$numQuick.Value
+        $quickNote.Text = ('将按最近活动打开 {0} 个目录，并继续上次会话' -f $n)
+        $model = $snap.Model
+        if ([string]::IsNullOrWhiteSpace($model)) { $model = '—' }
+        $status.Text = ('用量来自本机 usage.json · 单位 M（百万 Token） · 模型 {0}' -f $model)
+    }
+
+    function Show-DashPage {
+        $script:activePage = 'dash'
+        $grid.Visible = $false
+        $empty.Visible = $false
+        $toolbar.Visible = $false
+        $pageWatch.Visible = $false
+        $topStack.Height = 78
+        $pageDash.Visible = $true
+        $pageDash.BringToFront()
+        $title.Text = '仪表盘'
+        $subtitle.Text = '用量以百万 Token 计 · 一键打开最近常用目录'
+        $tabDash.ForeColor = $accent
+        $tabProjects.ForeColor = $muted
+        $tabWatch.ForeColor = $muted
+        $form.Height = 720
+        if ($script:allProjects.Count -eq 0) { Reload-Projects }
+        Refresh-Dash
         Layout-Buttons
     }
 
@@ -1479,8 +1895,46 @@ public static class UiUtil {
     $btnTerm.Add_Click({ Invoke-Open 'terminal' })
     $btnFolder.Add_Click({ Invoke-PickDirectoryAndNew })
     $btnRefresh.Add_Click({ Reload-Projects })
+    $tabDash.Add_Click({ Show-DashPage })
     $tabProjects.Add_Click({ Show-ProjectsPage })
     $tabWatch.Add_Click({ Show-WatchPage })
+    foreach ($rb in @($script:rangeButtons.Values)) {
+        $rb.Add_Click({
+                $script:config.usageRange = [string]$this.Tag
+                Save-LauncherConfig $script:config
+                Refresh-Dash
+            })
+    }
+    $numQuick.Add_ValueChanged({
+            $script:config.quickLaunchCount = [int]$numQuick.Value
+            Save-LauncherConfig $script:config
+            $quickNote.Text = ('将按最近活动打开 {0} 个目录，并继续上次会话' -f [int]$numQuick.Value)
+        })
+    $btnQuick.Add_Click({
+            $n = [int]$numQuick.Value
+            if ($script:allProjects.Count -eq 0) { Reload-Projects }
+            $ready = @(Sort-Projects -Projects ($script:allProjects | Where-Object { $_.Exists }) -Pins $script:config.pins | Select-Object -First $n)
+            if ($ready.Count -eq 0) {
+                [System.Windows.Forms.MessageBox]::Show('没有可以打开的目录。', '仪表盘') | Out-Null
+                return
+            }
+            try {
+                Open-GrokProjects -Projects $ready -Mode 'continue'
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
+            }
+        })
+    $topList.Add_DoubleClick({
+            $i = $topList.SelectedIndex
+            if ($i -lt 0) { return }
+            if ($null -eq $script:dashTopPaths -or $i -ge $script:dashTopPaths.Count) { return }
+            $path = [string]$script:dashTopPaths[$i]
+            $proj = New-ProjectFromPath $path
+            if (-not $proj.Exists) { return }
+            try { Open-GrokProjects -Projects @($proj) -Mode 'continue' } catch {
+                [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
+            }
+        })
 
     $grid.Add_CellDoubleClick({
             param($sender, $e)
@@ -1581,7 +2035,9 @@ public static class UiUtil {
                 $form.Activate()
                 Reload-Projects
                 if ($script:ScreenshotWatchMode) { Show-WatchPage }
-                elseif (-not $script:ScreenshotMode) { $search.Focus() }
+                elseif ($script:ScreenshotDashMode) { Show-DashPage }
+                elseif ($script:ScreenshotMode) { Show-ProjectsPage }
+                else { Show-DashPage }
             } catch {
                 try {
                     $errPath = Join-Path $script:Root 'docs\last-ui-error.txt'
@@ -1601,7 +2057,9 @@ public static class UiUtil {
                 if (-not (Test-Path -LiteralPath $outDir)) {
                     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
                 }
-                $name = if ($script:ScreenshotWatchMode) { 'watch.png' } else { 'screenshot.png' }
+                $name = 'screenshot.png'
+                if ($script:ScreenshotWatchMode) { $name = 'watch.png' }
+                elseif ($script:ScreenshotDashMode) { $name = 'dashboard.png' }
                 $outPath = Join-Path $outDir $name
                 $bmp = New-Object System.Drawing.Bitmap $form.ClientSize.Width, $form.ClientSize.Height
                 $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle 0, 0, $form.ClientSize.Width, $form.ClientSize.Height))
