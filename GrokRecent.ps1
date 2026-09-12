@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.6.0'
+$script:AppVersion = '1.7.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -293,19 +293,19 @@ function Get-DemoLiveWindows {
     @(
         [pscustomobject]@{
             Pid = 4101; Label = 'shop-web'; Path = 'D:\Work\shop-web'; Kind = 'working'
-            Title = 'Empty state for the order list'; Progress = 62; AgeText = '跑了 4 分钟'; Detail = '正在改订单空状态'
+            Title = 'Empty state for the order list'; Progress = 62; AgeText = '已运行 4 分钟'; LastAgo = '刚刚'; Detail = '正在改订单空状态'
         }
         [pscustomobject]@{
             Pid = 4102; Label = 'notes-app'; Path = 'D:\Work\notes-app'; Kind = 'created'
-            Title = 'Fix markdown preview scroll'; Progress = 8; AgeText = '刚打开 12 秒'; Detail = '新窗口，等待第一条指令'
+            Title = 'Fix markdown preview scroll'; Progress = 8; AgeText = '已运行 12 秒'; LastAgo = '刚刚'; Detail = '新窗口'
         }
         [pscustomobject]@{
-            Pid = 4103; Label = 'wiki-site'; Path = 'D:\Work\wiki-site'; Kind = 'done'
-            Title = 'Heading anchor jump on docs'; Progress = 44; AgeText = '跑了 18 分钟'; Detail = '这一轮已经写完'
+            Pid = 4103; Label = 'wiki-site'; Path = 'D:\Work\wiki-site'; Kind = 'idle'
+            Title = 'Heading anchor jump on docs'; Progress = 44; AgeText = '已运行 18 分钟'; LastAgo = '3 分钟前'; Detail = '这一轮已经写完'
         }
         [pscustomobject]@{
             Pid = 4104; Label = 'cli-tools'; Path = 'D:\Work\cli-tools'; Kind = 'idle'
-            Title = 'Add a doctor command'; Progress = 21; AgeText = '跑了 1 小时'; Detail = '停在提示符，等你说话'
+            Title = 'Add a doctor command'; Progress = 21; AgeText = '已运行 1 小时'; LastAgo = '20 分钟前'; Detail = '停在提示符'
         }
     )
 }
@@ -387,7 +387,21 @@ function Get-DemoUsageSnapshot {
         $total += $v; $inp += $vi; $outp += $vo
         $days += [pscustomobject]@{ Date = $d; Total = $v; Input = $vi; Output = $vo }
     }
-    if ($Range -eq 'today') { $days = @($days[-1]); $total = [int64]$days[0].Total; $inp = [int64]$days[0].Input; $outp = [int64]$days[0].Output }
+    if ($Range -eq 'today') {
+        $hours = @()
+        $ht = [int64]0; $hi = [int64]0; $ho = [int64]0
+        for ($h = 0; $h -le 23; $h++) {
+            $v = [int64]0
+            if ($h -ge 9 -and $h -le 21) { $v = [int64]((0.15 + (($h - 9) % 5) * 0.12) * 1000000) }
+            if ($h -eq 15) { $v = [int64](2.8 * 1000000) }
+            $vi = [int64]($v * 0.996)
+            $vo = [int64]($v - $vi)
+            $ht += $v; $hi += $vi; $ho += $vo
+            $hours += [pscustomobject]@{ Date = [datetime]::Today.AddHours($h); Hour = $h; Total = $v; Input = $vi; Output = $vo }
+        }
+        $days = $hours
+        $total = $ht; $inp = $hi; $outp = $ho
+    }
     if ($Range -eq '30d') { $total = [int64]($total * 2.1); $inp = [int64]($inp * 2.1); $outp = [int64]($outp * 2.1) }
     if ($Range -eq 'all') { $total = [int64]($total * 4.8); $inp = [int64]($inp * 4.8); $outp = [int64]($outp * 4.8) }
     $top = @(
@@ -396,16 +410,21 @@ function Get-DemoUsageSnapshot {
         [pscustomobject]@{ Label = 'wiki-site'; Path = 'D:\Work\wiki-site'; Tokens = [int64]($total * 0.14); Sessions = 5 }
         [pscustomobject]@{ Label = 'cli-tools'; Path = 'D:\Work\cli-tools'; Tokens = [int64]($total * 0.07); Sessions = 4 }
     )
-    $today = $days[-1].Total
+    $todayVal = $total
+    if ($Range -ne 'today') {
+        $hit = @($days | Where-Object { $_.Date.Date -eq [datetime]::Today })
+        if ($hit.Count -gt 0) { $todayVal = [int64]$hit[0].Total }
+    }
     return [pscustomobject]@{
         Range    = $Range
         Total    = $total
         Input    = $inp
         Output   = $outp
         Cached   = [int64]($total * 0.62)
-        Today    = $today
+        Today    = $todayVal
         Sessions = 29
         Windows  = 4
+        Active   = 4
         Days     = $days
         TopDirs  = $top
         Model    = 'grok-4.6'
@@ -420,6 +439,7 @@ function Get-UsageSnapshot {
     $total = [int64]0; $inp = [int64]0; $outp = [int64]0; $cache = [int64]0
     $sessCount = 0
     $dayMap = @{}
+    $hourMap = @{}
     $dirMap = @{}
     $model = ''
     if (Test-Path -LiteralPath $sessionsRoot) {
@@ -466,21 +486,66 @@ function Get-UsageSnapshot {
                 if (-not $model -and $sess.PSObject.Properties.Name -contains 'primaryModelId' -and $sess.primaryModelId) {
                     $model = [string]$sess.primaryModelId
                 }
+                if ($Range -eq 'today') {
+                    $usedTurns = $false
+                    if ($u.PSObject.Properties.Name -contains 'turns' -and $u.turns) {
+                        foreach ($tr in @($u.turns)) {
+                            if (-not $tr) { continue }
+                            $th = $null
+                            if ($tr.PSObject.Properties.Name -contains 'endedAt') { $th = Convert-GrokTime ([string]$tr.endedAt) }
+                            if (-not $th -or $th.ToLocalTime().DateTime.Date -ne [datetime]::Today) { continue }
+                            $hh = $th.ToLocalTime().DateTime.Hour
+                            $tt = [int64]0; $ti = [int64]0; $to = [int64]0
+                            try { if ($tr.totalTokens) { $tt = [int64]$tr.totalTokens } } catch { }
+                            try { if ($tr.inputTokens) { $ti = [int64]$tr.inputTokens } } catch { }
+                            try { if ($tr.outputTokens) { $to = [int64]$tr.outputTokens } } catch { }
+                            if ($tt -le 0) { continue }
+                            $usedTurns = $true
+                            $hk = [string]$hh
+                            if (-not $hourMap.Contains($hk)) { $hourMap[$hk] = @{ Total = [int64]0; Input = [int64]0; Output = [int64]0 } }
+                            $hourMap[$hk].Total = [int64]$hourMap[$hk].Total + $tt
+                            $hourMap[$hk].Input = [int64]$hourMap[$hk].Input + $ti
+                            $hourMap[$hk].Output = [int64]$hourMap[$hk].Output + $to
+                        }
+                    }
+                    if (-not $usedTurns) {
+                        $hh = 0
+                        if ($when) { $hh = $when.ToLocalTime().DateTime.Hour }
+                        $hk = [string]$hh
+                        if (-not $hourMap.Contains($hk)) { $hourMap[$hk] = @{ Total = [int64]0; Input = [int64]0; Output = [int64]0 } }
+                        $hourMap[$hk].Total = [int64]$hourMap[$hk].Total + $t
+                        $hourMap[$hk].Input = [int64]$hourMap[$hk].Input + $i
+                        $hourMap[$hk].Output = [int64]$hourMap[$hk].Output + $o
+                    }
+                }
             }
         }
     }
     $chartFrom = $from
     if ($Range -eq 'all' -or $Range -eq '30d') { $chartFrom = [datetime]::Today.AddDays(-13) }
     $days = @()
-    for ($d = $chartFrom; $d -le [datetime]::Today; $d = $d.AddDays(1)) {
-        $k = $d.ToString('yyyy-MM-dd')
-        $v = [int64]0; $vi = [int64]0; $vo = [int64]0
-        if ($dayMap.Contains($k)) {
-            $v = [int64]$dayMap[$k].Total
-            $vi = [int64]$dayMap[$k].Input
-            $vo = [int64]$dayMap[$k].Output
+    if ($Range -eq 'today') {
+        for ($hh = 0; $hh -le 23; $hh++) {
+            $hk = [string]$hh
+            $v = [int64]0; $vi = [int64]0; $vo = [int64]0
+            if ($hourMap.Contains($hk)) {
+                $v = [int64]$hourMap[$hk].Total
+                $vi = [int64]$hourMap[$hk].Input
+                $vo = [int64]$hourMap[$hk].Output
+            }
+            $days += [pscustomobject]@{ Date = [datetime]::Today.AddHours($hh); Hour = $hh; Total = $v; Input = $vi; Output = $vo }
         }
-        $days += [pscustomobject]@{ Date = $d; Total = $v; Input = $vi; Output = $vo }
+    } else {
+        for ($d = $chartFrom; $d -le [datetime]::Today; $d = $d.AddDays(1)) {
+            $k = $d.ToString('yyyy-MM-dd')
+            $v = [int64]0; $vi = [int64]0; $vo = [int64]0
+            if ($dayMap.Contains($k)) {
+                $v = [int64]$dayMap[$k].Total
+                $vi = [int64]$dayMap[$k].Input
+                $vo = [int64]$dayMap[$k].Output
+            }
+            $days += [pscustomobject]@{ Date = $d; Total = $v; Input = $vi; Output = $vo }
+        }
     }
     $todayTot = [int64]0
     $todayKey = [datetime]::Today.ToString('yyyy-MM-dd')
@@ -511,6 +576,7 @@ function Get-UsageSnapshot {
         Today    = $todayTot
         Sessions = $sessCount
         Windows  = $win
+        Active   = @($dirMap.Keys).Count
         Days     = $days
         TopDirs  = $top
         Model    = $model
@@ -755,6 +821,7 @@ function Get-LiveGrokWindows {
             Title    = $(if ($meta -and $meta.Title) { $meta.Title } else { 'Grok 会话' })
             Progress = $(if ($meta) { [int]$meta.Progress } else { 0 })
             AgeText  = Format-RunAge $started
+            LastAgo  = $(if ($meta -and $meta.When) { Format-Ago $meta.When } else { '' })
             Detail   = $detail
         }
     }
@@ -1035,11 +1102,14 @@ public static class UiUtil {
     $header.Controls.Add($accentBar)
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = '最近的 Grok 项目'
+    $title.Text = '用量'
     $title.Font = $titleFont
     $title.ForeColor = $text
     $title.Location = New-Object System.Drawing.Point(22, 14)
-    $title.AutoSize = $true
+    $title.AutoSize = $false
+    $title.Height = 32
+    $title.Width = 280
+    $title.AutoEllipsis = $true
     $header.Controls.Add($title)
 
     $ver = New-Object System.Windows.Forms.Label
@@ -1051,11 +1121,14 @@ public static class UiUtil {
     $header.Controls.Add($ver)
 
     $subtitle = New-Object System.Windows.Forms.Label
-    $subtitle.Text = '从本机会话找回目录 · 多选后一次在 Windows Terminal 打开'
+    $subtitle.Text = '先看总量，再看今天，再看哪个项目吃得最多'
     $subtitle.Font = $smallFont
     $subtitle.ForeColor = $muted
     $subtitle.Location = New-Object System.Drawing.Point(24, 50)
-    $subtitle.AutoSize = $true
+    $subtitle.AutoSize = $false
+    $subtitle.Height = 20
+    $subtitle.Width = 420
+    $subtitle.AutoEllipsis = $true
     $header.Controls.Add($subtitle)
 
     function New-TabButton {
@@ -1149,20 +1222,28 @@ public static class UiUtil {
         return $b
     }
 
-    $btnContinue = New-BarButton '续上' $accent $ink 86 $accentHover
-    $btnNew = New-BarButton '新开' $panel $text 72 $hover
-    $btnTerm = New-BarButton '终端' $panel $text 72 $hover
-    $btnFolder = New-BarButton '文件夹' $panel $text 80 $hover
-    $btnRefresh = New-BarButton '刷新' $panel $muted 72 $hover
+    $selLabel = New-Object System.Windows.Forms.Label
+    $selLabel.ForeColor = $muted
+    $selLabel.Font = $smallFont
+    $selLabel.AutoSize = $true
+    $selLabel.Location = New-Object System.Drawing.Point(400, 18)
+    $selLabel.Text = '未选择项目'
+    $toolbar.Controls.Add($selLabel)
+
+    $btnContinue = New-BarButton '继续最近会话' $accent $ink 118 $accentHover
+    $btnNew = New-BarButton '新建会话' $panel $text 86 $hover
+    $btnTerm = New-BarButton '打开终端' $panel $text 86 $hover
+    $btnFolder = New-BarButton '打开文件夹' $panel $text 96 $hover
+    $btnRefresh = New-BarButton '刷新' $panel $muted 64 $hover
     foreach ($b in @($btnNew, $btnTerm, $btnFolder, $btnRefresh)) {
         $b.FlatAppearance.BorderSize = 1
         $b.FlatAppearance.BorderColor = $line
     }
     $tip = New-Object System.Windows.Forms.ToolTip
-    $tip.SetToolTip($btnNew, '在列表选中的目录新开 Grok 会话')
-    $tip.SetToolTip($btnContinue, '继续该目录最近一次会话')
-    $tip.SetToolTip($btnFolder, '选择任意目录，在那里新开 Grok（不是只打开资源管理器）')
-    $tip.SetToolTip($btnTerm, '只打开终端，停在选中目录')
+    $tip.SetToolTip($btnNew, '在选中项目里开一个新的 Grok 会话')
+    $tip.SetToolTip($btnContinue, '使用该项目最近一次 Grok 会话重新打开')
+    $tip.SetToolTip($btnFolder, '用资源管理器打开选中项目的目录')
+    $tip.SetToolTip($btnTerm, '在选中项目目录打开终端')
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = 'Fill'
@@ -1247,7 +1328,7 @@ public static class UiUtil {
     $watchHint.ForeColor = $muted
     $watchHint.Font = $smallFont
     $watchHint.Padding = New-Object System.Windows.Forms.Padding(22, 6, 8, 0)
-    $watchHint.Text = '正在跑的窗口会列在这里。任务开始转圈，写完打勾。'
+    $watchHint.Text = '状态点：绿 = 工作中，灰 = 空闲。Context 是上下文占用，不是任务进度。'
     $pageWatch.Controls.Add($watchHint)
 
     $watchFlow = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -1453,6 +1534,7 @@ public static class UiUtil {
         $fill.Top = 0
         $fill.BackColor = [System.Drawing.Color]::FromArgb(120, 108, 84)
         $track.Controls.Add($fill)
+        $row.Visible = $false
         $rankBody.Controls.Add($row)
         $script:rankRows += @{ Row = $row; Name = $nm; Nums = $nums; Track = $track; Fill = $fill; Path = '' }
     }
@@ -1517,6 +1599,7 @@ public static class UiUtil {
         $st.TextAlign = 'MiddleRight'
         $st.SetBounds(220, 8, 90, 18)
         $srow.Controls.Add($st)
+        $srow.Visible = $false
         $recentBody.Controls.Add($srow)
         $script:recentRows += @{ Row = $srow; Name = $sn; Time = $st; Path = ''; Title = '' }
     }
@@ -1626,11 +1709,23 @@ public static class UiUtil {
             $b.Anchor = 'Top,Right'
             $right -= 8
         }
-        $hideMissing.Left = [Math]::Min(376, [Math]::Max(220, $right - 100))
-        $searchHost.Width = [Math]::Max(180, $hideMissing.Left - 36)
-        $search.Width = [Math]::Max(120, $searchHost.Width - 40)
+        $hideMissing.Left = [Math]::Min(376, [Math]::Max(220, $right - 220))
+        $searchHost.Width = [Math]::Max(160, $hideMissing.Left - 36)
+        $search.Width = [Math]::Max(100, $searchHost.Width - 40)
+        $selLabel.Left = $hideMissing.Right + 16
+        $selLabel.Top = 18
         $empty.Bounds = $grid.Bounds
-        $ver.Left = $title.Right + 10
+        $title.Width = [Math]::Max(120, $tabDash.Left - 100)
+        $subtitle.Width = $title.Width
+        try {
+            $g = $header.CreateGraphics()
+            $sz = $g.MeasureString($title.Text, $title.Font)
+            $g.Dispose()
+            $ver.Left = $title.Left + [Math]::Min($title.Width, [int]$sz.Width + 6)
+        } catch {
+            $ver.Left = $title.Left + 80
+        }
+        $ver.Top = 22
         $header.Width = $topStack.ClientSize.Width
         $toolbar.Width = $topStack.ClientSize.Width
         $toolbar.Top = $header.Height
@@ -1659,8 +1754,11 @@ public static class UiUtil {
             if ($col -eq 'Pin') {
                 if ([string]$e.Value -eq '★') { $e.CellStyle.ForeColor = $accent; $e.CellStyle.SelectionForeColor = $accent }
                 else { $e.CellStyle.ForeColor = $muted; $e.CellStyle.SelectionForeColor = $muted }
-            } elseif ($col -eq 'Path' -or $col -eq 'Ago') {
+            } elseif ($col -eq 'Path' -or $col -eq 'Ago' -or $col -eq 'Title') {
                 $e.CellStyle.ForeColor = $muted
+                $e.CellStyle.SelectionForeColor = $muted
+            } elseif ($col -eq 'Name') {
+                $e.CellStyle.ForeColor = $text
                 $e.CellStyle.SelectionForeColor = $text
             }
         })
@@ -1732,11 +1830,14 @@ public static class UiUtil {
             $cTitle = $grid.Columns.Add('Title', '摘要')
             $cPath = $grid.Columns.Add('Path', '路径')
             $grid.Columns[$cPin].FillWeight = 6
-            $grid.Columns[$cName].FillWeight = 18
-            $grid.Columns[$cAgo].FillWeight = 11
+            $grid.Columns[$cName].FillWeight = 24
+            $grid.Columns[$cAgo].FillWeight = 10
             $grid.Columns[$cCount].FillWeight = 7
-            $grid.Columns[$cTitle].FillWeight = 32
-            $grid.Columns[$cPath].FillWeight = 26
+            $grid.Columns[$cTitle].FillWeight = 44
+            $grid.Columns[$cPath].FillWeight = 8
+            $grid.Columns[$cName].DefaultCellStyle.ForeColor = $text
+            $grid.Columns[$cTitle].DefaultCellStyle.ForeColor = $muted
+            $grid.Columns[$cTitle].DefaultCellStyle.Font = $smallFont
             $grid.Columns[$cPin].MinimumWidth = 40
             $grid.Columns[$cCount].AutoSizeMode = 'None'
             $grid.Columns[$cCount].Width = 72
@@ -1771,7 +1872,11 @@ public static class UiUtil {
         if ($empty.Visible) { $empty.BringToFront() } else { $grid.BringToFront() }
 
         $pinCount = @($script:config.pins).Count
-        $status.Text = ('{0} 个项目    已选 {1}    置顶 {2}      双击续上 · Enter 打开 · Ctrl+A 全选 · Esc 关闭 · ★ 置顶' -f `
+        $picked = @(Get-SelectedProjects)
+        if ($picked.Count -eq 1) { $selLabel.Text = ('已选择：{0}' -f $picked[0].Label) }
+        elseif ($picked.Count -gt 1) { $selLabel.Text = ('已选择 {0} 个项目' -f $picked.Count) }
+        else { $selLabel.Text = '未选择项目' }
+        $status.Text = ('{0} 个项目    已选 {1}    置顶 {2}      继续最近会话作用于黄色选中行' -f `
                 $visible.Count, $grid.SelectedRows.Count, $pinCount)
         Fit-FormHeight
         Layout-Buttons
@@ -1785,7 +1890,7 @@ public static class UiUtil {
             } else {
                 $script:allProjects = @(Get-GrokRecentProjects)
             }
-            Show-Rows
+            if ($script:activePage -eq 'projects') { Show-Rows }
         } finally {
             $form.Cursor = [System.Windows.Forms.Cursors]::Default
         }
@@ -1853,9 +1958,9 @@ public static class UiUtil {
         idle    = '空闲'
     }
     $kindColor = @{
-        created = $accent
-        working = $accent
-        done    = [System.Drawing.Color]::FromArgb(92, 168, 112)
+        created = [System.Drawing.Color]::FromArgb(180, 170, 150)
+        working = [System.Drawing.Color]::FromArgb(80, 168, 110)
+        done    = [System.Drawing.Color]::FromArgb(80, 168, 110)
         idle    = $muted
     }
 
@@ -1919,56 +2024,92 @@ public static class UiUtil {
         if ($old) { $old.Dispose() }
     }
 
+    function New-MiniBtn {
+        param([string]$Caption, [int]$W)
+        $b = New-Object System.Windows.Forms.Button
+        $b.Text = $Caption
+        $b.FlatStyle = 'Flat'
+        $b.FlatAppearance.BorderSize = 1
+        $b.FlatAppearance.BorderColor = $line
+        $b.BackColor = $panel
+        $b.ForeColor = $text
+        $b.Width = $W
+        $b.Height = 24
+        $b.Font = $smallFont
+        $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+        return $b
+    }
+
     function New-WatchCard {
         param($Row)
         $card = New-Object System.Windows.Forms.Panel
-        $card.Height = 78
+        $card.Height = 56
         $card.Width = 920
         $card.BackColor = $panel
-        $card.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 8)
+        $card.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 6)
         $card.Tag = $Row.Pid
 
-        $pic = New-Object System.Windows.Forms.PictureBox
-        $pic.SetBounds(12, 18, 42, 42)
-        $pic.SizeMode = 'StretchImage'
-        $card.Controls.Add($pic)
-        Set-CardIcon $pic $Row.Kind
+        $dot = New-Object System.Windows.Forms.Label
+        $dot.Text = [char]0x25CF
+        $dot.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+        $dot.AutoSize = $true
+        $dot.Location = New-Object System.Drawing.Point(12, 10)
+        $card.Controls.Add($dot)
 
         $name = New-Object System.Windows.Forms.Label
         $name.Font = $rowFont
         $name.ForeColor = $text
         $name.AutoSize = $true
-        $name.Location = New-Object System.Drawing.Point(66, 10)
+        $name.Location = New-Object System.Drawing.Point(30, 8)
         $card.Controls.Add($name)
 
         $badge = New-Object System.Windows.Forms.Label
         $badge.Font = $smallFont
         $badge.AutoSize = $true
-        $badge.Location = New-Object System.Drawing.Point(220, 12)
+        $badge.Location = New-Object System.Drawing.Point(160, 10)
         $card.Controls.Add($badge)
 
         $sub = New-Object System.Windows.Forms.Label
         $sub.Font = $smallFont
         $sub.ForeColor = $muted
-        $sub.AutoSize = $true
-        $sub.Location = New-Object System.Drawing.Point(66, 34)
+        $sub.AutoSize = $false
+        $sub.Height = 18
+        $sub.Location = New-Object System.Drawing.Point(30, 30)
         $card.Controls.Add($sub)
 
-        $barBack = New-Object System.Windows.Forms.Panel
-        $barBack.SetBounds(66, 58, 620, 5)
-        $barBack.BackColor = [System.Drawing.Color]::FromArgb(40, 36, 30)
-        $card.Controls.Add($barBack)
-        $barFill = New-Object System.Windows.Forms.Panel
-        $barFill.Height = 5
-        $barFill.Top = 0
-        $barFill.Left = 0
-        $barFill.BackColor = $accent
-        $barBack.Controls.Add($barFill)
+        $btnOpen = New-MiniBtn '打开' 52
+        $btnTermW = New-MiniBtn '终端' 52
+        $btnKill = New-MiniBtn '结束' 52
+        $btnKill.ForeColor = $danger
+        $card.Controls.Add($btnOpen)
+        $card.Controls.Add($btnTermW)
+        $card.Controls.Add($btnKill)
+        $pidCopy = $Row.Pid
+        $pathCopy = $Row.Path
+        $btnOpen.Add_Click({
+                if ([string]::IsNullOrWhiteSpace($pathCopy)) { return }
+                $proj = New-ProjectFromPath $pathCopy
+                if ($proj.Exists) { Open-GrokProjects -Projects @($proj) -Mode 'continue' }
+            }.GetNewClosure())
+        $btnTermW.Add_Click({
+                if ([string]::IsNullOrWhiteSpace($pathCopy)) { return }
+                $proj = New-ProjectFromPath $pathCopy
+                if ($proj.Exists) { Open-GrokProjects -Projects @($proj) -Mode 'terminal' }
+            }.GetNewClosure())
+        $btnKill.Add_Click({
+                $r = [System.Windows.Forms.MessageBox]::Show(('结束 PID {0} 的 Grok 进程？' -f $pidCopy), '结束窗口', 'YesNo')
+                if ($r -ne 'Yes') { return }
+                try { Stop-Process -Id $pidCopy -Force -ErrorAction Stop } catch {
+                    [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '结束失败') | Out-Null
+                }
+                Sync-WatchCards
+            }.GetNewClosure())
 
         $watchFlow.Controls.Add($card)
         $info = @{
-            Panel = $card; Pic = $pic; Name = $name; Badge = $badge
-            Sub = $sub; Bar = $barFill; BarBack = $barBack; Kind = $Row.Kind
+            Panel = $card; Dot = $dot; Name = $name; Badge = $badge
+            Sub = $sub; Kind = $Row.Kind
+            BtnOpen = $btnOpen; BtnTerm = $btnTermW; BtnKill = $btnKill
         }
         $script:watchCards[$Row.Pid] = $info
         Update-WatchCard $Row
@@ -1982,20 +2123,29 @@ public static class UiUtil {
         $info.Name.Text = $Row.Label
         $info.Badge.Text = $kindLabel[$Row.Kind]
         $info.Badge.ForeColor = $kindColor[$Row.Kind]
-        $info.Badge.Left = $info.Name.Right + 12
-        $line2 = @($Row.AgeText, ('PID {0}' -f $Row.Pid), $Row.Detail) | Where-Object { $_ }
-        $info.Sub.Text = ($line2 -join '  ·  ')
+        $info.Dot.ForeColor = $kindColor[$Row.Kind]
+        $info.Badge.Left = $info.Name.Right + 10
+        $bits = @()
+        $bits += ('PID {0}' -f $Row.Pid)
+        if ($Row.LastAgo) { $bits += ('最后活动 {0}' -f $Row.LastAgo) }
+        if ($Row.AgeText) { $bits += $Row.AgeText }
         $pct = [Math]::Max(0, [Math]::Min(100, [int]$Row.Progress))
-        $info.Bar.Width = [int](($info.BarBack.Width * $pct) / 100)
-        $info.Bar.BackColor = $(if ($Row.Kind -eq 'done') { $kindColor.done } else { $accent })
-        if ($info.Kind -ne $Row.Kind -or $Row.Kind -eq 'working') {
-            Set-CardIcon $info.Pic $Row.Kind
-            $info.Kind = $Row.Kind
-        }
+        if ($pct -gt 0) { $bits += ('Context {0}%' -f $pct) }
+        $info.Sub.Text = ($bits -join '  ·  ')
+        $info.Kind = $Row.Kind
         $w = [Math]::Max(640, $watchFlow.ClientSize.Width - 28)
         $info.Panel.Width = $w
-        $info.BarBack.Width = [Math]::Max(200, $w - 90)
-        $info.Bar.Width = [int](($info.BarBack.Width * $pct) / 100)
+        $info.Panel.Height = 56
+        $info.Sub.Width = [Math]::Max(200, $w - 220)
+        $info.BtnKill.Left = $w - 64
+        $info.BtnKill.Top = 16
+        $info.BtnTerm.Left = $w - 122
+        $info.BtnTerm.Top = 16
+        $info.BtnOpen.Left = $w - 180
+        $info.BtnOpen.Top = 16
+        $info.BtnOpen.BackColor = $accent
+        $info.BtnOpen.ForeColor = $ink
+        $info.BtnOpen.FlatAppearance.BorderSize = 0
     }
 
     function Sync-WatchCards {
@@ -2015,7 +2165,7 @@ public static class UiUtil {
         }
         foreach ($cardId in $dead) {
             $info = $script:watchCards[$cardId]
-            if ($info.Pic.Image) { $info.Pic.Image.Dispose() }
+            if ($info.Contains('Pic') -and $info.Pic -and $info.Pic.Image) { $info.Pic.Image.Dispose() }
             $watchFlow.Controls.Remove($info.Panel)
             $info.Panel.Dispose()
             $script:watchCards.Remove($cardId)
@@ -2024,7 +2174,8 @@ public static class UiUtil {
         $working = @($rows | Where-Object { $_.Kind -eq 'working' }).Count
         $done = @($rows | Where-Object { $_.Kind -eq 'done' }).Count
         $created = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
-        $watchHint.Text = ('{0} 个窗口在跑    进行中 {1}    刚完成 {2}    刚创建 {3}      任务一开始转圈，写完变成勾' -f $n, $working, $done, $created)
+        $idleN = @($rows | Where-Object { $_.Kind -eq 'idle' }).Count
+        $watchHint.Text = ('{0} 个窗口 · 工作中 {1} · 空闲 {2}      Context 是上下文占用，不是任务进度' -f $n, $working, $idleN)
         $watchEmpty.Visible = ($n -eq 0)
         if ($watchEmpty.Visible) { $watchEmpty.BringToFront() } else { $watchFlow.BringToFront() }
         $status.Text = $watchHint.Text
@@ -2106,7 +2257,14 @@ public static class UiUtil {
                 $y = $padT + $plotH - $bh
                 $useBr = $(if ($i -eq $peakI) { $peakBr } else { $barBr })
                 $g.FillRectangle($useBr, $x, $y, $bw, $bh)
-                $g.DrawString($day.Date.ToString('M/d'), $smallFont, $mutedBr, $x, $h - 20)
+                $xLabel = $x
+                if ($day.PSObject.Properties.Name -contains 'Hour') {
+                    if (($day.Hour % 3) -eq 0) {
+                        $g.DrawString(('{0:00}' -f $day.Hour), $smallFont, $mutedBr, $xLabel, $h - 20)
+                    }
+                } else {
+                    $g.DrawString($day.Date.ToString('M/d'), $smallFont, $mutedBr, $xLabel, $h - 20)
+                }
             }
             $hi = $script:chartHover
             if ($hi -ge 0 -and $hi -lt $n) {
@@ -2158,15 +2316,27 @@ public static class UiUtil {
         $kpiHero.Cap.Text = Get-RangeCaption $range
         $kpiHero.Val.Text = Format-TokenM $snap.Total
         $kpiHero.Sub.Text = ''
-        $kpiToday.Val.Text = Format-TokenM $snap.Today
-        $kpiToday.Sub.Text = $(if ($snap.Today -gt 0) { '今天仍在进行' } else { '今天还没有用量' })
         $kpiIn.Val.Text = Format-TokenM $snap.Input
         $kpiIn.Sub.Text = Format-PctShare $snap.Input $snap.Total
         $kpiOut.Val.Text = Format-TokenM $snap.Output
         $kpiOut.Sub.Text = Format-PctShare $snap.Output $snap.Total
-        $kpiMeta.Val.Text = ('{0}' -f $snap.Sessions)
-        $kpiMeta.Sub.Text = ('{0} 个会话 · 分布于 {1} 个窗口' -f $snap.Sessions, $snap.Windows)
-        $kpiMeta.Cap.Text = '会话'
+        $activeN = 0
+        if ($snap.PSObject.Properties.Name -contains 'Active') { $activeN = [int]$snap.Active }
+        if ($range -eq 'today') {
+            $kpiToday.Cap.Text = '今日会话'
+            $kpiToday.Val.Text = ('{0}' -f $snap.Sessions)
+            $kpiToday.Sub.Text = ''
+            $kpiMeta.Cap.Text = '活跃项目'
+            $kpiMeta.Val.Text = ('{0}' -f $activeN)
+            $kpiMeta.Sub.Text = ('{0} 个窗口' -f $snap.Windows)
+        } else {
+            $kpiToday.Cap.Text = '今日用量'
+            $kpiToday.Val.Text = Format-TokenM $snap.Today
+            $kpiToday.Sub.Text = $(if ($snap.Today -gt 0) { '今天仍在进行' } else { '今天还没有用量' })
+            $kpiMeta.Cap.Text = '会话'
+            $kpiMeta.Val.Text = ('{0}' -f $snap.Sessions)
+            $kpiMeta.Sub.Text = ('{0} 个会话 · {1} 个窗口' -f $snap.Sessions, $snap.Windows)
+        }
         foreach ($key in @($script:rangeButtons.Keys)) {
             $b = $script:rangeButtons[$key]
             if ($key -eq $range) { $b.ForeColor = $accent } else { $b.ForeColor = $muted }
@@ -2232,11 +2402,13 @@ public static class UiUtil {
         $pageDash.Visible = $true
         $pageDash.BringToFront()
         $title.Text = '用量'
-        $subtitle.Text = '先看总量，再看哪天暴增，再看哪个项目吃掉最多'
+        $subtitle.Text = '先看总量，再看今天，再看哪个项目吃得最多'
         Set-Nav 'dash'
         $form.Height = 720
         if ($script:allProjects.Count -eq 0) { Reload-Projects }
         Refresh-Dash
+        $title.Text = '用量'
+        $subtitle.Text = '先看总量，再看今天，再看哪个项目吃得最多'
         Layout-Buttons
     }
 
@@ -2278,7 +2450,7 @@ public static class UiUtil {
     $btnContinue.Add_Click({ Invoke-Open 'continue' })
     $btnNew.Add_Click({ Invoke-Open 'new' })
     $btnTerm.Add_Click({ Invoke-Open 'terminal' })
-    $btnFolder.Add_Click({ Invoke-PickDirectoryAndNew })
+    $btnFolder.Add_Click({ Invoke-Open 'folder' })
     $btnRefresh.Add_Click({ Reload-Projects })
     $tabDash.Add_Click({ Show-DashPage })
     $tabProjects.Add_Click({ Show-ProjectsPage })
@@ -2393,13 +2565,15 @@ public static class UiUtil {
         })
 
     $grid.Add_SelectionChanged({
-            $visibleCount = $grid.Rows.Count
-            $status.Text = ('{0} 个项目    已选 {1}    置顶 {2}      双击续上 · Enter 打开 · Ctrl+A 全选 · Esc 关闭 · ★ 置顶' -f `
-                    $visibleCount, $grid.SelectedRows.Count, @($script:config.pins).Count)
+            if ($script:activePage -ne 'projects') { return }
+            $picked = @(Get-SelectedProjects)
+            if ($picked.Count -eq 1) { $selLabel.Text = ('已选择：{0}' -f $picked[0].Label) }
+            elseif ($picked.Count -gt 1) { $selLabel.Text = ('已选择 {0} 个项目' -f $picked.Count) }
+            else { $selLabel.Text = '未选择项目' }
         })
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
-    $mContinue = $menu.Items.Add('续上上次会话')
+    $mContinue = $menu.Items.Add('继续最近会话')
     $mNew = $menu.Items.Add('新开会话')
     $mPick = $menu.Items.Add('选择目录新开...')
     $mTerm = $menu.Items.Add('只开终端')
@@ -2458,14 +2632,16 @@ public static class UiUtil {
             if ($script:activePage -ne 'watch') { return }
             $script:spinAngle = ($script:spinAngle + 24) % 360
             foreach ($info in @($script:watchCards.Values)) {
-                if ($info.Kind -eq 'working') { Set-CardIcon $info.Pic 'working' }
+                if ($info.Contains('Dot')) {
+                    $info.Dot.ForeColor = $kindColor[$info.Kind]
+                }
             }
         })
     $spinTimer.Start()
     $form.Add_FormClosing({
             $scanTimer.Stop(); $spinTimer.Stop()
             foreach ($info in @($script:watchCards.Values)) {
-                if ($info.Pic.Image) { $info.Pic.Image.Dispose() }
+                if ($info.Contains('Pic') -and $info.Pic -and $info.Pic.Image) { $info.Pic.Image.Dispose() }
             }
         })
 
