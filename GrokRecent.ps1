@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.7.0'
+$script:AppVersion = '1.7.1'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -861,6 +861,35 @@ function Sort-Projects {
         @{ Expression = { $_.LastActive }; Descending = $true }
 }
 
+function Select-GrokFolderPath {
+    param(
+        $Owner,
+        [string]$StartPath
+    )
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dlg.Description = "请双击进入你要打开 Grok 的那个文件夹，再点「选择文件夹」。只在右边点一下、不进入，会打开上一级。"
+    $dlg.ShowNewFolderButton = $false
+    try { $dlg.AutoUpgradeEnabled = $true } catch { }
+    if ($StartPath -and (Test-Path -LiteralPath $StartPath)) {
+        $dlg.SelectedPath = $StartPath
+    } elseif (Test-Path -LiteralPath 'D:\Project') {
+        $dlg.SelectedPath = 'D:\Project'
+    }
+    $result = if ($Owner) { $dlg.ShowDialog($Owner) } else { $dlg.ShowDialog() }
+    if ($result -ne [System.Windows.Forms.DialogResult]::OK) { return $null }
+    $chosen = $dlg.SelectedPath
+    if ([string]::IsNullOrWhiteSpace($chosen)) { return $null }
+    $chosen = [System.IO.Path]::GetFullPath($chosen)
+    $confirm = [System.Windows.Forms.MessageBox]::Show(
+        ("即将在这个文件夹打开 Grok：`r`n`r`n{0}`r`n`r`n不对就点「否」，重新选。" -f $chosen),
+        '确认打开目录',
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question
+    )
+    if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return $null }
+    return $chosen
+}
+
 function New-ProjectFromPath {
     param([Parameter(Mandatory)][string]$Path)
     $full = [System.IO.Path]::GetFullPath($Path.TrimEnd('\', '/'))
@@ -910,7 +939,7 @@ function Open-GrokProjects {
     if ($wt) {
         $wtArgs = New-Object System.Collections.Generic.List[string]
         [void]$wtArgs.Add('-w')
-        [void]$wtArgs.Add('0')
+        [void]$wtArgs.Add('new')
         $first = $true
         foreach ($p in $existing) {
             if (-not $first) { [void]$wtArgs.Add(';') }
@@ -923,6 +952,8 @@ function Open-GrokProjects {
                 [void]$wtArgs.Add('powershell.exe')
             } else {
                 [void]$wtArgs.Add($grok)
+                [void]$wtArgs.Add('--cwd')
+                [void]$wtArgs.Add($p.Path)
                 if ($Mode -eq 'continue') { [void]$wtArgs.Add('-c') }
             }
             $first = $false
@@ -942,7 +973,7 @@ function Open-GrokProjects {
             Start-Process -FilePath 'powershell.exe' -WorkingDirectory $p.Path | Out-Null
             continue
         }
-        $arg = @()
+        $arg = @('--cwd', $p.Path)
         if ($Mode -eq 'continue') { $arg += '-c' }
         Start-Process -FilePath $grok -ArgumentList $arg -WorkingDirectory $p.Path | Out-Null
     }
@@ -1232,18 +1263,20 @@ public static class UiUtil {
 
     $btnContinue = New-BarButton '继续最近会话' $accent $ink 118 $accentHover
     $btnNew = New-BarButton '新建会话' $panel $text 86 $hover
+    $btnPick = New-BarButton '指定文件夹' $panel $text 96 $hover
     $btnTerm = New-BarButton '打开终端' $panel $text 86 $hover
-    $btnFolder = New-BarButton '打开文件夹' $panel $text 96 $hover
-    $btnRefresh = New-BarButton '刷新' $panel $muted 64 $hover
-    foreach ($b in @($btnNew, $btnTerm, $btnFolder, $btnRefresh)) {
+    $btnFolder = New-BarButton '资源管理器' $panel $text 96 $hover
+    $btnRefresh = New-BarButton '刷新' $panel $muted 56 $hover
+    foreach ($b in @($btnNew, $btnPick, $btnTerm, $btnFolder, $btnRefresh)) {
         $b.FlatAppearance.BorderSize = 1
         $b.FlatAppearance.BorderColor = $line
     }
     $tip = New-Object System.Windows.Forms.ToolTip
-    $tip.SetToolTip($btnNew, '在选中项目里开一个新的 Grok 会话')
-    $tip.SetToolTip($btnContinue, '使用该项目最近一次 Grok 会话重新打开')
-    $tip.SetToolTip($btnFolder, '用资源管理器打开选中项目的目录')
-    $tip.SetToolTip($btnTerm, '在选中项目目录打开终端')
+    $tip.SetToolTip($btnNew, '只作用于黄色选中的那一行，在该目录新开 Grok')
+    $tip.SetToolTip($btnContinue, '只作用于黄色选中的那一行，继续该目录最近一次会话')
+    $tip.SetToolTip($btnPick, '自己选一个文件夹，Grok 就在那个文件夹里打开（不看列表选中行）')
+    $tip.SetToolTip($btnFolder, '用资源管理器打开黄色选中行的目录')
+    $tip.SetToolTip($btnTerm, '在黄色选中行的目录打开终端')
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = 'Fill'
@@ -1702,7 +1735,7 @@ public static class UiUtil {
         Set-Nav $script:activePage
         Layout-Dash
         $right = $toolbar.ClientSize.Width - 18
-        foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnNew, $btnContinue)) {
+        foreach ($b in @($btnRefresh, $btnFolder, $btnTerm, $btnPick, $btnNew, $btnContinue)) {
             $right -= $b.Width
             $b.Left = $right
             $b.Top = 12
@@ -1920,27 +1953,23 @@ public static class UiUtil {
     }
 
     function Invoke-PickDirectoryAndNew {
-        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = '选择目录，然后在这里新开 Grok'
-        $dlg.ShowNewFolderButton = $true
+        $start = $null
         $picked = @(Get-SelectedProjects)
-        if ($picked.Count -gt 0 -and $picked[0].Exists) {
-            $dlg.SelectedPath = $picked[0].Path
-        }
+        if ($picked.Count -gt 0 -and $picked[0].Exists) { $start = $picked[0].Path }
         $wasTop = $form.TopMost
         $form.TopMost = $false
         try {
-            $result = $dlg.ShowDialog($form)
+            $chosen = Select-GrokFolderPath -Owner $form -StartPath $start
         } finally {
             $form.TopMost = $wasTop
         }
-        if ($result -ne [System.Windows.Forms.DialogResult]::OK) { return }
-        if ([string]::IsNullOrWhiteSpace($dlg.SelectedPath)) { return }
-        $proj = New-ProjectFromPath $dlg.SelectedPath
+        if ([string]::IsNullOrWhiteSpace($chosen)) { return }
+        $proj = New-ProjectFromPath $chosen
         if (-not $proj.Exists) {
-            [System.Windows.Forms.MessageBox]::Show('这个目录不存在。', 'Grok 最近项目') | Out-Null
+            [System.Windows.Forms.MessageBox]::Show(('这个目录不存在：{0}' -f $chosen), 'Grok 最近项目') | Out-Null
             return
         }
+        $status.Text = ('正在打开：{0}' -f $proj.Path)
         try {
             Open-GrokProjects -Projects @($proj) -Mode 'new'
         } catch {
@@ -2449,6 +2478,7 @@ public static class UiUtil {
 
     $btnContinue.Add_Click({ Invoke-Open 'continue' })
     $btnNew.Add_Click({ Invoke-Open 'new' })
+    $btnPick.Add_Click({ Invoke-PickDirectoryAndNew })
     $btnTerm.Add_Click({ Invoke-Open 'terminal' })
     $btnFolder.Add_Click({ Invoke-Open 'folder' })
     $btnRefresh.Add_Click({ Reload-Projects })
