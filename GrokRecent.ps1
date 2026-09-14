@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.9.0'
+$script:AppVersion = '1.9.1'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -1276,6 +1276,28 @@ public static class UiUtil {
     $script:defaultStatusText = ''
     $script:laserPhase = 0.0
     $script:watchFilter = 'all'
+    $script:pressState = @{}
+    $script:toastTimer = $null
+    $accentPress = [System.Drawing.Color]::FromArgb(217, 119, 6)
+    $panelPress = [System.Drawing.Color]::FromArgb(14, 18, 26)
+
+    function Add-Tactile {
+        param($Btn, $PressBack)
+        if ($PressBack) {
+            $Btn.FlatAppearance.MouseDownBackColor = $PressBack
+        }
+        $Btn.Add_MouseDown({
+                $k = $this.GetHashCode()
+                if (-not $script:pressState.Contains($k)) { $script:pressState[$k] = $this.Top }
+                $this.Top = ([int]$script:pressState[$k]) + 1
+            })
+        $up = {
+            $k = $this.GetHashCode()
+            if ($script:pressState.Contains($k)) { $this.Top = [int]$script:pressState[$k] }
+        }
+        $Btn.Add_MouseUp($up)
+        $Btn.Add_MouseLeave($up)
+    }
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'Grok 最近项目'
@@ -1356,8 +1378,8 @@ public static class UiUtil {
         $b.Height = 28
         $b.Cursor = [System.Windows.Forms.Cursors]::Hand
         $b.Font = $uiFont
-        $b.Add_MouseDown({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 1, 0, 0) })
-        $b.Add_MouseUp({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 0) })
+        $b.FlatAppearance.MouseDownBackColor = $panelPress
+        Add-Tactile $b $panelPress
         $header.Controls.Add($b)
         return $b
     }
@@ -1439,14 +1461,16 @@ public static class UiUtil {
         $b.FlatStyle = 'Flat'
         $b.FlatAppearance.BorderSize = 0
         $b.FlatAppearance.MouseOverBackColor = $HoverBack
+        $pressC = $panelPress
+        if ($Back.R -gt 200) { $pressC = $accentPress }
+        $b.FlatAppearance.MouseDownBackColor = $pressC
         $b.BackColor = $Back
         $b.ForeColor = $Fore
         $b.Width = $Width
         $b.Height = 34
         $b.Font = $uiFont
         $b.Cursor = [System.Windows.Forms.Cursors]::Hand
-        $b.Add_MouseDown({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 0) })
-        $b.Add_MouseUp({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 0) })
+        Add-Tactile $b $pressC
         $toolbar.Controls.Add($b)
         return $b
     }
@@ -1539,18 +1563,54 @@ public static class UiUtil {
     $status.Text = '双击续上  ·  Enter 打开  ·  Ctrl+A 全选  ·  Esc 关闭'
     $statusHost.Controls.Add($status)
     $script:defaultStatusText = $status.Text
+
+    $toast = New-Object System.Windows.Forms.Panel
+    $toast.Height = 36
+    $toast.Visible = $false
+    $toast.BackColor = [System.Drawing.Color]::FromArgb(30, 36, 50)
+    $toast.Anchor = 'Bottom,Left,Right'
+    $form.Controls.Add($toast)
+    $toastBar = New-Object System.Windows.Forms.Panel
+    $toastBar.Width = 3
+    $toastBar.Dock = 'Left'
+    $toastBar.BackColor = $accent
+    $toast.Controls.Add($toastBar)
+    $toastLabel = New-Object System.Windows.Forms.Label
+    $toastLabel.Dock = 'Fill'
+    $toastLabel.ForeColor = $text
+    $toastLabel.Font = $smallFont
+    $toastLabel.TextAlign = 'MiddleLeft'
+    $toastLabel.Padding = New-Object System.Windows.Forms.Padding(12, 0, 8, 0)
+    $toast.Controls.Add($toastLabel)
+    $toastLabel.BringToFront()
+
+    function Layout-Toast {
+        $toast.Left = 12
+        $toast.Width = [Math]::Max(200, $form.ClientSize.Width - 24)
+        $toast.Top = [Math]::Max(0, $statusHost.Top - 44)
+        $toast.BringToFront()
+    }
+
     function Show-StatusFeedback {
         param([string]$Msg)
         $status.ForeColor = $accent
         $status.Text = $Msg
+        $toastLabel.Text = $Msg
+        $toast.Visible = $true
+        Layout-Toast
+        if ($script:toastTimer) {
+            try { $script:toastTimer.Stop(); $script:toastTimer.Dispose() } catch { }
+        }
         $t = New-Object System.Windows.Forms.Timer
         $t.Interval = 2200
         $t.Add_Tick({
+                $toast.Visible = $false
                 $status.ForeColor = $muted
-                if ($script:activePage -eq 'watch') { }
-                else { $status.Text = $script:defaultStatusText }
+                if ($script:activePage -ne 'watch') { $status.Text = $script:defaultStatusText }
                 $this.Stop(); $this.Dispose()
+                $script:toastTimer = $null
             })
+        $script:toastTimer = $t
         $t.Start()
     }
 
@@ -1601,6 +1661,9 @@ public static class UiUtil {
         $watchStrip.Controls.Add($fb)
         $script:watchFilterBtns[$wf.Key] = $fb
         $fx += 84
+        $fb.FlatAppearance.MouseOverBackColor = $hover
+        $fb.FlatAppearance.MouseDownBackColor = $panelPress
+        Add-Tactile $fb $panelPress
         $fb.Add_Click({
                 $script:watchFilter = [string]$this.Tag
                 Sync-WatchCards
@@ -1746,6 +1809,9 @@ public static class UiUtil {
         $rb.Cursor = [System.Windows.Forms.Cursors]::Hand
         $rangeHost.Controls.Add($rb)
         $script:rangeButtons[$def.Key] = $rb
+        $rb.FlatAppearance.MouseOverBackColor = $hover
+        $rb.FlatAppearance.MouseDownBackColor = $panelPress
+        Add-Tactile $rb $panelPress
         $rx += 74
     }
 
@@ -1869,6 +1935,12 @@ public static class UiUtil {
     $btnPlus.Add_Click({
             if ($numQuick.Value -lt $numQuick.Maximum) { $numQuick.Value = $numQuick.Value + 1 }
         })
+    $btnMinus.FlatAppearance.MouseOverBackColor = $hover
+    $btnMinus.FlatAppearance.MouseDownBackColor = $panelPress
+    $btnPlus.FlatAppearance.MouseOverBackColor = $hover
+    $btnPlus.FlatAppearance.MouseDownBackColor = $panelPress
+    Add-Tactile $btnMinus $panelPress
+    Add-Tactile $btnPlus $panelPress
     $btnQuick = New-Object System.Windows.Forms.Button
     $btnQuick.FlatStyle = 'Flat'
     $btnQuick.FlatAppearance.BorderSize = 0
@@ -1878,6 +1950,9 @@ public static class UiUtil {
     $btnQuick.Width = 148
     $btnQuick.Cursor = [System.Windows.Forms.Cursors]::Hand
     $btnQuick.Text = ('恢复最近 {0} 个会话' -f [int]$numQuick.Value)
+    $btnQuick.FlatAppearance.MouseOverBackColor = $accentHover
+    $btnQuick.FlatAppearance.MouseDownBackColor = $accentPress
+    Add-Tactile $btnQuick $accentPress
     $recentHead.Controls.Add($btnQuick)
     $recentBody = New-Object System.Windows.Forms.Panel
     $recentBody.Dock = 'Fill'
@@ -2038,6 +2113,7 @@ public static class UiUtil {
         $header.Width = $topStack.ClientSize.Width
         $toolbar.Width = $topStack.ClientSize.Width
         $toolbar.Top = $header.Height
+        Layout-Toast
     }
 
     function Fit-FormHeight {
@@ -2344,6 +2420,9 @@ public static class UiUtil {
         $b.Height = 24
         $b.Font = $smallFont
         $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $b.FlatAppearance.MouseOverBackColor = $hover
+        $b.FlatAppearance.MouseDownBackColor = $panelPress
+        Add-Tactile $b $panelPress
         return $b
     }
 
