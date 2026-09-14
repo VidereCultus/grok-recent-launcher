@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.8.1'
+$script:AppVersion = '1.9.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -1251,28 +1251,37 @@ public static class UiUtil {
         }
     }
 
-    $bg = [System.Drawing.Color]::FromArgb(14, 14, 12)
-    $panel = [System.Drawing.Color]::FromArgb(26, 24, 21)
-    $toolbarBg = [System.Drawing.Color]::FromArgb(20, 19, 17)
-    $line = [System.Drawing.Color]::FromArgb(52, 46, 38)
-    $text = [System.Drawing.Color]::FromArgb(240, 233, 220)
-    $muted = [System.Drawing.Color]::FromArgb(138, 130, 116)
-    $accent = [System.Drawing.Color]::FromArgb(212, 154, 64)
-    $accentHover = [System.Drawing.Color]::FromArgb(228, 174, 86)
-    $select = [System.Drawing.Color]::FromArgb(72, 52, 24)
-    $hover = [System.Drawing.Color]::FromArgb(36, 32, 26)
-    $danger = [System.Drawing.Color]::FromArgb(176, 96, 72)
-    $ink = [System.Drawing.Color]::FromArgb(28, 22, 12)
-    $uiFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 9.5)
-    $titleFont = New-Object System.Drawing.Font('Georgia', 18, [System.Drawing.FontStyle]::Bold)
-    $smallFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 8.25)
-    $rowFont = New-Object System.Drawing.Font('Microsoft YaHei UI', 9.75)
+    $bg = [System.Drawing.Color]::FromArgb(12, 14, 18)
+    $panel = [System.Drawing.Color]::FromArgb(19, 23, 32)
+    $toolbarBg = [System.Drawing.Color]::FromArgb(14, 17, 23)
+    $line = [System.Drawing.Color]::FromArgb(35, 41, 54)
+    $text = [System.Drawing.Color]::FromArgb(243, 245, 249)
+    $muted = [System.Drawing.Color]::FromArgb(148, 163, 184)
+    $accent = [System.Drawing.Color]::FromArgb(245, 158, 11)
+    $accentHover = [System.Drawing.Color]::FromArgb(251, 191, 36)
+    $select = [System.Drawing.Color]::FromArgb(38, 34, 28)
+    $hover = [System.Drawing.Color]::FromArgb(26, 32, 44)
+    $danger = [System.Drawing.Color]::FromArgb(244, 63, 94)
+    $ink = [System.Drawing.Color]::FromArgb(12, 14, 18)
+    $working = [System.Drawing.Color]::FromArgb(16, 185, 129)
+    $createdC = [System.Drawing.Color]::FromArgb(56, 189, 248)
+    $idleC = [System.Drawing.Color]::FromArgb(100, 116, 139)
+    $uiFont = New-Object System.Drawing.Font('Segoe UI', 9.5)
+    $titleFont = New-Object System.Drawing.Font('Segoe UI', 18, [System.Drawing.FontStyle]::Bold)
+    $smallFont = New-Object System.Drawing.Font('Segoe UI', 8.25)
+    $rowFont = New-Object System.Drawing.Font('Segoe UI', 9.75)
+    $monoFont = New-Object System.Drawing.Font('Consolas', 9)
+    $heroFont = New-Object System.Drawing.Font('Consolas', 22, [System.Drawing.FontStyle]::Bold)
+    $midFont = New-Object System.Drawing.Font('Consolas', 14, [System.Drawing.FontStyle]::Bold)
+    $script:defaultStatusText = ''
+    $script:laserPhase = 0.0
+    $script:watchFilter = 'all'
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'Grok 最近项目'
     $form.StartPosition = 'CenterScreen'
     $form.Size = New-Object System.Drawing.Size(1100, 680)
-    $form.MinimumSize = New-Object System.Drawing.Size(920, 520)
+    $form.MinimumSize = New-Object System.Drawing.Size(920, 680)
     $form.BackColor = $bg
     $form.ForeColor = $text
     $form.Font = $uiFont
@@ -1347,6 +1356,8 @@ public static class UiUtil {
         $b.Height = 28
         $b.Cursor = [System.Windows.Forms.Cursors]::Hand
         $b.Font = $uiFont
+        $b.Add_MouseDown({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 1, 0, 0) })
+        $b.Add_MouseUp({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 0) })
         $header.Controls.Add($b)
         return $b
     }
@@ -1372,21 +1383,34 @@ public static class UiUtil {
     $searchHost.BackColor = $panel
     $toolbar.Controls.Add($searchHost)
 
-    $searchMark = New-Object System.Windows.Forms.Label
-    $searchMark.Text = '⌕'
-    $searchMark.Font = New-Object System.Drawing.Font('Segoe UI Symbol', 11)
-    $searchMark.ForeColor = $muted
-    $searchMark.Location = New-Object System.Drawing.Point(8, 6)
-    $searchMark.AutoSize = $true
+    $searchMark = New-Object System.Windows.Forms.Panel
+    $searchMark.SetBounds(8, 8, 16, 16)
+    $searchMark.BackColor = $panel
     $searchHost.Controls.Add($searchMark)
+    $searchMark.Add_Paint({
+            param($s, $e)
+            $g = $e.Graphics
+            $g.SmoothingMode = 'AntiAlias'
+            $pen = New-Object System.Drawing.Pen($muted, 1.4)
+            $g.DrawEllipse($pen, 1, 1, 9, 9)
+            $g.DrawLine($pen, 9, 9, 14, 14)
+            $pen.Dispose()
+        })
+    $searchKbd = New-Object System.Windows.Forms.Label
+    $searchKbd.Text = 'Ctrl+F'
+    $searchKbd.Font = $smallFont
+    $searchKbd.ForeColor = $muted
+    $searchKbd.AutoSize = $true
+    $searchKbd.Location = New-Object System.Drawing.Point(278, 8)
+    $searchHost.Controls.Add($searchKbd)
 
     $search = New-Object System.Windows.Forms.TextBox
     $search.BorderStyle = 'None'
     $search.BackColor = $panel
     $search.ForeColor = $text
     $search.Font = $rowFont
-    $search.Location = New-Object System.Drawing.Point(30, 8)
-    $search.Width = 300
+    $search.Location = New-Object System.Drawing.Point(28, 8)
+    $search.Width = 240
     $searchHost.Controls.Add($search)
     $script:search = $search
     $search.Add_HandleCreated({
@@ -1421,6 +1445,8 @@ public static class UiUtil {
         $b.Height = 34
         $b.Font = $uiFont
         $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $b.Add_MouseDown({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 0) })
+        $b.Add_MouseUp({ $this.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 0) })
         $toolbar.Controls.Add($b)
         return $b
     }
@@ -1478,10 +1504,11 @@ public static class UiUtil {
     $grid.DefaultCellStyle.SelectionForeColor = $text
     $grid.DefaultCellStyle.Font = $rowFont
     $grid.DefaultCellStyle.Padding = $pad
-    $grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(22, 21, 18)
+    $grid.AlternatingRowsDefaultCellStyle.BackColor = $panel
     $grid.AlternatingRowsDefaultCellStyle.ForeColor = $text
     $grid.AlternatingRowsDefaultCellStyle.SelectionBackColor = $select
     $grid.AlternatingRowsDefaultCellStyle.SelectionForeColor = $text
+    $grid.GridColor = [System.Drawing.Color]::FromArgb(28, 32, 42)
     $grid.ColumnHeadersDefaultCellStyle.BackColor = $toolbarBg
     $grid.ColumnHeadersDefaultCellStyle.ForeColor = $muted
     $grid.ColumnHeadersDefaultCellStyle.Font = $smallFont
@@ -1509,8 +1536,23 @@ public static class UiUtil {
     $status.Font = $smallFont
     $status.TextAlign = 'MiddleLeft'
     $status.Padding = New-Object System.Windows.Forms.Padding(20, 0, 8, 0)
-    $status.Text = '双击续上  ·  Enter 打开  ·  Ctrl+A 全选  ·  Esc 关闭  ·  点 ★ 置顶'
+    $status.Text = '双击续上  ·  Enter 打开  ·  Ctrl+A 全选  ·  Esc 关闭'
     $statusHost.Controls.Add($status)
+    $script:defaultStatusText = $status.Text
+    function Show-StatusFeedback {
+        param([string]$Msg)
+        $status.ForeColor = $accent
+        $status.Text = $Msg
+        $t = New-Object System.Windows.Forms.Timer
+        $t.Interval = 2200
+        $t.Add_Tick({
+                $status.ForeColor = $muted
+                if ($script:activePage -eq 'watch') { }
+                else { $status.Text = $script:defaultStatusText }
+                $this.Stop(); $this.Dispose()
+            })
+        $t.Start()
+    }
 
     $empty = New-Object System.Windows.Forms.Label
     $empty.Text = "还没有会话记录`r`n在某个项目目录运行过 grok 之后，就会出现在这里"
@@ -1528,13 +1570,42 @@ public static class UiUtil {
     $form.Controls.Add($pageWatch)
 
     $watchHint = New-Object System.Windows.Forms.Label
-    $watchHint.Dock = 'Top'
-    $watchHint.Height = 28
-    $watchHint.ForeColor = $muted
-    $watchHint.Font = $smallFont
-    $watchHint.Padding = New-Object System.Windows.Forms.Padding(22, 6, 8, 0)
-    $watchHint.Text = '状态点：绿 = 工作中，灰 = 空闲。Context 是上下文占用，不是任务进度。'
-    $pageWatch.Controls.Add($watchHint)
+    $watchHint.Visible = $false
+    $watchStrip = New-Object System.Windows.Forms.Panel
+    $watchStrip.Dock = 'Top'
+    $watchStrip.Height = 40
+    $watchStrip.BackColor = $bg
+    $pageWatch.Controls.Add($watchStrip)
+    $script:watchFilterBtns = @{}
+    $fx = 16
+    $watchFilters = @(
+        [pscustomobject]@{ Key = 'all'; Text = '全部' }
+        [pscustomobject]@{ Key = 'working'; Text = '工作中' }
+        [pscustomobject]@{ Key = 'idle'; Text = '空闲' }
+        [pscustomobject]@{ Key = 'created'; Text = '刚创建' }
+    )
+    foreach ($wf in $watchFilters) {
+        $fb = New-Object System.Windows.Forms.Button
+        $fb.Text = $wf.Text
+        $fb.Tag = $wf.Key
+        $fb.FlatStyle = 'Flat'
+        $fb.FlatAppearance.BorderSize = 0
+        $fb.BackColor = $panel
+        $fb.ForeColor = $muted
+        $fb.Height = 26
+        $fb.Width = 78
+        $fb.Left = $fx
+        $fb.Top = 7
+        $fb.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $fb.Font = $smallFont
+        $watchStrip.Controls.Add($fb)
+        $script:watchFilterBtns[$wf.Key] = $fb
+        $fx += 84
+        $fb.Add_Click({
+                $script:watchFilter = [string]$this.Tag
+                Sync-WatchCards
+            })
+    }
 
     $watchFlow = New-Object System.Windows.Forms.FlowLayoutPanel
     $watchFlow.Dock = 'Fill'
@@ -1578,8 +1649,7 @@ public static class UiUtil {
     [void]$kpiTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     $pageDash.Controls.Add($kpiTable)
 
-    $heroFont = New-Object System.Drawing.Font('Georgia', 22, [System.Drawing.FontStyle]::Bold)
-    $midFont = New-Object System.Drawing.Font('Georgia', 14, [System.Drawing.FontStyle]::Bold)
+    # heroFont / midFont already created from design tokens
 
     function New-KpiPanel {
         param([bool]$Hero = $false)
@@ -1764,12 +1834,41 @@ public static class UiUtil {
     $numQuick.Minimum = 1
     $numQuick.Maximum = 12
     $numQuick.Value = [decimal]$script:config.quickLaunchCount
-    $numQuick.Width = 44
-    $numQuick.Height = 22
-    $numQuick.BackColor = $bg
-    $numQuick.ForeColor = $text
-    $numQuick.BorderStyle = 'FixedSingle'
+    $numQuick.Visible = $false
     $recentHead.Controls.Add($numQuick)
+    $btnMinus = New-Object System.Windows.Forms.Button
+    $btnMinus.Text = '-'
+    $btnMinus.FlatStyle = 'Flat'
+    $btnMinus.FlatAppearance.BorderSize = 1
+    $btnMinus.FlatAppearance.BorderColor = $line
+    $btnMinus.BackColor = $bg
+    $btnMinus.ForeColor = $text
+    $btnMinus.Size = New-Object System.Drawing.Size(22, 22)
+    $btnMinus.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $recentHead.Controls.Add($btnMinus)
+    $lblQuickCount = New-Object System.Windows.Forms.Label
+    $lblQuickCount.Text = ('{0}' -f [int]$numQuick.Value)
+    $lblQuickCount.ForeColor = $text
+    $lblQuickCount.Font = $monoFont
+    $lblQuickCount.TextAlign = 'MiddleCenter'
+    $lblQuickCount.Size = New-Object System.Drawing.Size(22, 22)
+    $recentHead.Controls.Add($lblQuickCount)
+    $btnPlus = New-Object System.Windows.Forms.Button
+    $btnPlus.Text = '+'
+    $btnPlus.FlatStyle = 'Flat'
+    $btnPlus.FlatAppearance.BorderSize = 1
+    $btnPlus.FlatAppearance.BorderColor = $line
+    $btnPlus.BackColor = $bg
+    $btnPlus.ForeColor = $text
+    $btnPlus.Size = New-Object System.Drawing.Size(22, 22)
+    $btnPlus.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $recentHead.Controls.Add($btnPlus)
+    $btnMinus.Add_Click({
+            if ($numQuick.Value -gt $numQuick.Minimum) { $numQuick.Value = $numQuick.Value - 1 }
+        })
+    $btnPlus.Add_Click({
+            if ($numQuick.Value -lt $numQuick.Maximum) { $numQuick.Value = $numQuick.Value + 1 }
+        })
     $btnQuick = New-Object System.Windows.Forms.Button
     $btnQuick.FlatStyle = 'Flat'
     $btnQuick.FlatAppearance.BorderSize = 0
@@ -1858,10 +1957,15 @@ public static class UiUtil {
         $n = [int]$numQuick.Value
         $btnQuick.Text = ('恢复最近 {0} 个会话' -f $n)
         $btnQuick.Width = 148
-        $btnQuick.Left = [Math]::Max(160, $recentHead.ClientSize.Width - 162)
+        $btnQuick.Left = [Math]::Max(200, $recentHead.ClientSize.Width - 162)
         $btnQuick.Top = 6
-        $numQuick.Left = $btnQuick.Left - 50
-        $numQuick.Top = 7
+        $btnPlus.Left = $btnQuick.Left - 28
+        $btnPlus.Top = 7
+        $lblQuickCount.Left = $btnPlus.Left - 24
+        $lblQuickCount.Top = 7
+        $lblQuickCount.Text = ('{0}' -f [int]$numQuick.Value)
+        $btnMinus.Left = $lblQuickCount.Left - 24
+        $btnMinus.Top = 7
         $bw = [Math]::Max(80, $rankBody.ClientSize.Width)
         $rowH = 36
         for ($i = 0; $i -lt $script:rankRows.Count; $i++) {
@@ -2119,6 +2223,7 @@ public static class UiUtil {
         }
         try {
             Open-GrokProjects -Projects $picked -Mode $Mode
+            Show-StatusFeedback '已拉起终端会话'
         } catch {
             [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
         }
@@ -2144,6 +2249,7 @@ public static class UiUtil {
         $status.Text = ('正在打开：{0}' -f $proj.Path)
         try {
             Open-GrokProjects -Projects @($proj) -Mode 'new'
+            Show-StatusFeedback ('已在该文件夹打开：{0}' -f $proj.Path)
         } catch {
             [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
         }
@@ -2159,10 +2265,10 @@ public static class UiUtil {
         idle    = '空闲'
     }
     $kindColor = @{
-        created = [System.Drawing.Color]::FromArgb(180, 170, 150)
-        working = [System.Drawing.Color]::FromArgb(80, 168, 110)
-        done    = [System.Drawing.Color]::FromArgb(80, 168, 110)
-        idle    = $muted
+        created = $createdC
+        working = $working
+        done    = $working
+        idle    = $idleC
     }
 
     function New-StatusIcon {
@@ -2249,6 +2355,57 @@ public static class UiUtil {
         $card.BackColor = $panel
         $card.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 6)
         $card.Tag = $Row.Pid
+        $laser = New-Object System.Windows.Forms.Panel
+        $laser.Height = 2
+        $laser.Dock = 'Top'
+        $laser.BackColor = $panel
+        $laser.Visible = $false
+        $card.Controls.Add($laser)
+        $laser.Add_Paint({
+                param($s, $e)
+                if ($script:activePage -ne 'watch') { return }
+                $g = $e.Graphics
+                $wdt = [Math]::Max(1, $s.Width)
+                $beamW = [int]($wdt * 0.35)
+                $startX = [int]($wdt * $script:laserPhase)
+                $rect = New-Object System.Drawing.Rectangle($startX, 0, $beamW, 2)
+                $br = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+                    $rect,
+                    [System.Drawing.Color]::FromArgb(0, 16, 185, 129),
+                    [System.Drawing.Color]::FromArgb(220, 245, 158, 11),
+                    [System.Drawing.Drawing2D.LinearGradientMode]::Horizontal
+                )
+                $g.FillRectangle($br, $rect)
+                $br.Dispose()
+            })
+        $ctxLed = New-Object System.Windows.Forms.Panel
+        $ctxLed.SetBounds(46, 214, 80, 12)
+        $ctxLed.BackColor = $bg
+        $ctxLed.Visible = $false
+        $card.Controls.Add($ctxLed)
+        $ctxLed.Add_Paint({
+                param($s, $e)
+                $g = $e.Graphics
+                $ratio = 0.0
+                $hostCard = $s.Parent
+                if ($hostCard -and $script:watchCards.Contains($hostCard.Tag)) {
+                    $lr = $script:watchCards[$hostCard.Tag].LastRow
+                    if ($lr) { $ratio = [Math]::Max(0, [Math]::Min(1, [double]$lr.Progress / 100.0)) }
+                }
+                $filled = [int][Math]::Round($ratio * 10)
+                for ($i = 0; $i -lt 10; $i++) {
+                    $x = $i * 8
+                    $c = [System.Drawing.Color]::FromArgb(28, 34, 46)
+                    if ($i -lt $filled) {
+                        if ($i -lt 3) { $c = [System.Drawing.Color]::FromArgb(16, 185, 129) }
+                        elseif ($i -lt 7) { $c = [System.Drawing.Color]::FromArgb(245, 158, 11) }
+                        else { $c = [System.Drawing.Color]::FromArgb(244, 63, 94) }
+                    }
+                    $b = New-Object System.Drawing.SolidBrush($c)
+                    $g.FillRectangle($b, $x, 3, 6, 6)
+                    $b.Dispose()
+                }
+            })
 
         $dot = New-Object System.Windows.Forms.Label
         $dot.Text = [char]0x25CF
@@ -2333,7 +2490,7 @@ public static class UiUtil {
             Panel = $card; Dot = $dot; Chev = $chev; Name = $name; Badge = $badge
             Sub = $sub; DetailBox = $detailBox; Kind = $Row.Kind
             BtnOpen = $btnOpen; BtnTerm = $btnTermW; BtnKill = $btnKill
-            LastRow = $Row
+            LastRow = $Row; Laser = $laser; CtxLed = $ctxLed
         }
         $script:watchCards[$Row.Pid] = $info
         $pidToggle = $Row.Pid
@@ -2407,7 +2564,12 @@ public static class UiUtil {
         if ($Row.SessionId) { [void]$dlines.Add(('会话：{0}' -f $Row.SessionId)) }
         $info.DetailBox.Text = ($dlines -join [Environment]::NewLine)
         $info.DetailBox.Visible = $exp
-        $info.DetailBox.SetBounds(46, 54, [Math]::Max(200, $w - 70), 170)
+        $info.DetailBox.SetBounds(46, 54, [Math]::Max(200, $w - 70), 150)
+        $info.Laser.Visible = ($Row.Kind -eq 'working')
+        $info.CtxLed.Visible = $exp
+        $info.CtxLed.SetBounds(46, 210, 90, 14)
+        $info.CtxLed.Invalidate()
+        $info.Laser.Invalidate()
     }
 
     function Sync-WatchCards {
@@ -2419,6 +2581,10 @@ public static class UiUtil {
                 New-WatchCard $row | Out-Null
             } else {
                 Update-WatchCard $row
+            }
+            $show = ($script:watchFilter -eq 'all' -or $row.Kind -eq $script:watchFilter)
+            if ($script:watchCards.Contains($row.Pid)) {
+                $script:watchCards[$row.Pid].Panel.Visible = $show
             }
         }
         $dead = @()
@@ -2437,10 +2603,19 @@ public static class UiUtil {
         $done = @($rows | Where-Object { $_.Kind -eq 'done' }).Count
         $created = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
         $idleN = @($rows | Where-Object { $_.Kind -eq 'idle' }).Count
-        $watchHint.Text = ('{0} 个窗口 · 工作中 {1} · 空闲 {2}      点开一行看正在执行的工具和最近动作' -f $n, $working, $idleN)
+        $createdN = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
+        if ($script:watchFilterBtns.Contains('all')) { $script:watchFilterBtns['all'].Text = ('全部 {0}' -f $n) }
+        if ($script:watchFilterBtns.Contains('working')) { $script:watchFilterBtns['working'].Text = ('工作中 {0}' -f $working) }
+        if ($script:watchFilterBtns.Contains('idle')) { $script:watchFilterBtns['idle'].Text = ('空闲 {0}' -f $idleN) }
+        if ($script:watchFilterBtns.Contains('created')) { $script:watchFilterBtns['created'].Text = ('刚创建 {0}' -f $createdN) }
+        foreach ($fk in @($script:watchFilterBtns.Keys)) {
+            $fb = $script:watchFilterBtns[$fk]
+            if ($fk -eq $script:watchFilter) { $fb.ForeColor = $accent; $fb.BackColor = $hover }
+            else { $fb.ForeColor = $muted; $fb.BackColor = $panel }
+        }
         $watchEmpty.Visible = ($n -eq 0)
         if ($watchEmpty.Visible) { $watchEmpty.BringToFront() } else { $watchFlow.BringToFront() }
-        $status.Text = $watchHint.Text
+        $status.Text = ('{0} 个窗口 · 工作中 {1} · 空闲 {2}      点开一行看正在执行的工具' -f $n, $working, $idleN)
     }
 
     function Show-ProjectsPage {
@@ -2495,8 +2670,8 @@ public static class UiUtil {
         $g.Clear($panel)
         $days = @($Snap.Days)
         $mutedBr = New-Object System.Drawing.SolidBrush $muted
-        $barBr = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(120, 108, 84))
-        $peakBr = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(168, 148, 108))
+        $barBr = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, 53, 70))
+        $peakBr = New-Object System.Drawing.SolidBrush $accent
         $gridPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(48, 44, 38))
         $padL = 48; $padB = 24; $padT = 10; $padR = 16
         $plotW = $w - $padL - $padR
@@ -2629,7 +2804,7 @@ public static class UiUtil {
                 $r.Nums.Text = ('{0}  {1}' -f (Format-TokenM $d.Tokens), (Format-PctShare $d.Tokens $snap.Total))
                 $r.Pct = $barPct
                 $r.Path = $d.Path
-                $r.Fill.BackColor = $(if ($i -eq 0) { [System.Drawing.Color]::FromArgb(148, 132, 100) } else { [System.Drawing.Color]::FromArgb(108, 98, 80) })
+                $r.Fill.BackColor = $accent
             } else {
                 $r.Row.Visible = $false
                 $r.Path = ''
@@ -2761,6 +2936,7 @@ public static class UiUtil {
             }
             try {
                 Open-GrokProjects -Projects $ready -Mode 'continue'
+                Show-StatusFeedback ('已恢复 {0} 个会话' -f $ready.Count)
             } catch {
                 [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
             }
@@ -2904,9 +3080,14 @@ public static class UiUtil {
     $spinTimer.Add_Tick({
             if ($script:activePage -ne 'watch') { return }
             $script:spinAngle = ($script:spinAngle + 24) % 360
+            $script:laserPhase += 0.05
+            if ($script:laserPhase -gt 1.2) { $script:laserPhase = -0.4 }
             foreach ($info in @($script:watchCards.Values)) {
                 if ($info.Contains('Dot')) {
                     $info.Dot.ForeColor = $kindColor[$info.Kind]
+                }
+                if ($info.Contains('Laser') -and $info.Laser -and $info.Laser.Visible) {
+                    $info.Laser.Invalidate()
                 }
             }
         })
@@ -2926,6 +3107,20 @@ public static class UiUtil {
     $form.Add_Shown({
             try {
                 $form.Activate()
+                try {
+                    if (-not ('DwmUtil' -as [type])) {
+                        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class DwmUtil {
+  [DllImport("dwmapi.dll")]
+  public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+}
+'@
+                    }
+                    $darkMode = 1
+                    [void][DwmUtil]::DwmSetWindowAttribute($form.Handle, 20, [ref]$darkMode, 4)
+                } catch { }
                 Reload-Projects
                 if ($script:ScreenshotWatchMode) { Show-WatchPage }
                 elseif ($script:ScreenshotDashMode) { Show-DashPage }
