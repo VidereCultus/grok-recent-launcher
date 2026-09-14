@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.7.1'
+$script:AppVersion = '1.8.0'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -45,6 +45,7 @@ $script:recentPaths = @()
 $script:dashTopPaths = @()
 $script:rangeAutoPicked = $false
 $script:recentRows = @()
+$script:watchExpanded = @{}
 
 $legacyConfig = Join-Path $script:Root 'config.json'
 if (-not (Test-Path -LiteralPath $script:ConfigPath) -and (Test-Path -LiteralPath $legacyConfig)) {
@@ -294,18 +295,22 @@ function Get-DemoLiveWindows {
         [pscustomobject]@{
             Pid = 4101; Label = 'shop-web'; Path = 'D:\Work\shop-web'; Kind = 'working'
             Title = 'Empty state for the order list'; Progress = 62; AgeText = '已运行 4 分钟'; LastAgo = '刚刚'; Detail = '正在改订单空状态'
+            CurrentTool = 'search_replace'; RecentTools = @('read_file · success','grep · success','run_terminal_command · success'); TokenM = '1.24 M'; Model = 'grok-4.6'; ToolCount = 18; TurnCount = 4; SessionId = 'demo-4101'; TaskLine = '正在执行 search_replace'
         }
         [pscustomobject]@{
             Pid = 4102; Label = 'notes-app'; Path = 'D:\Work\notes-app'; Kind = 'created'
             Title = 'Fix markdown preview scroll'; Progress = 8; AgeText = '已运行 12 秒'; LastAgo = '刚刚'; Detail = '新窗口'
+            CurrentTool = $null; RecentTools = @(); TokenM = '0.02 M'; Model = 'grok-4.6'; ToolCount = 0; TurnCount = 1; SessionId = 'demo-4102'; TaskLine = '新窗口，等待第一条指令'
         }
         [pscustomobject]@{
             Pid = 4103; Label = 'wiki-site'; Path = 'D:\Work\wiki-site'; Kind = 'idle'
             Title = 'Heading anchor jump on docs'; Progress = 44; AgeText = '已运行 18 分钟'; LastAgo = '3 分钟前'; Detail = '这一轮已经写完'
+            CurrentTool = $null; RecentTools = @('write · success','search_replace · success'); TokenM = '0.86 M'; Model = 'grok-4.6'; ToolCount = 11; TurnCount = 3; SessionId = 'demo-4103'; TaskLine = '上一轮：这一轮已经写完'
         }
         [pscustomobject]@{
             Pid = 4104; Label = 'cli-tools'; Path = 'D:\Work\cli-tools'; Kind = 'idle'
             Title = 'Add a doctor command'; Progress = 21; AgeText = '已运行 1 小时'; LastAgo = '20 分钟前'; Detail = '停在提示符'
+            CurrentTool = $null; RecentTools = @('read_file · success'); TokenM = '0.41 M'; Model = 'grok-4.6'; ToolCount = 4; TurnCount = 2; SessionId = 'demo-4104'; TaskLine = '停在提示符，等你说话'
         }
     )
 }
@@ -677,6 +682,76 @@ public static class ProcessCwd {
 '@
 }
 
+function Get-FileTailText {
+    param([string]$Path, [int]$MaxBytes = 65536)
+    if (-not (Test-Path -LiteralPath $Path)) { return '' }
+    $fs = $null
+    try {
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $len = [int][Math]::Min($MaxBytes, $fs.Length)
+        if ($len -le 0) { return '' }
+        [void]$fs.Seek(-1 * $len, [System.IO.SeekOrigin]::End)
+        $buf = New-Object byte[] $len
+        [void]$fs.Read($buf, 0, $len)
+        return [System.Text.Encoding]::UTF8.GetString($buf)
+    } catch {
+        return ''
+    } finally {
+        if ($fs) { $fs.Close() }
+    }
+}
+
+function Get-SessionActivity {
+    param([string]$SessionDir)
+    $recent = New-Object System.Collections.Generic.List[string]
+    $open = New-Object System.Collections.Generic.List[string]
+    $evt = Join-Path $SessionDir 'events.jsonl'
+    if (Test-Path -LiteralPath $evt) {
+        $raw = Get-FileTailText $evt 65536
+        foreach ($ln in ($raw -split "`r?`n")) {
+            $t = $ln.Trim()
+            if (-not $t.StartsWith('{')) { continue }
+            $o = $null
+            try { $o = $t | ConvertFrom-Json } catch { continue }
+            if (-not $o) { continue }
+            $typ = [string]$o.type
+            $nm = [string]$o.tool_name
+            if ([string]::IsNullOrWhiteSpace($nm)) { continue }
+            if ($typ -eq 'tool_started') {
+                $open.Add($nm)
+            } elseif ($typ -eq 'tool_completed') {
+                if ($open.Count -gt 0) { $open.RemoveAt($open.Count - 1) }
+                $outc = [string]$o.outcome
+                if ($outc) { $recent.Add("$nm · $outc") } else { $recent.Add($nm) }
+            }
+        }
+    }
+    $arr = @($recent)
+    if ($arr.Count -gt 8) { $arr = $arr[($arr.Count - 8)..($arr.Count - 1)] }
+    $current = $null
+    if ($open.Count -gt 0) { $current = $open[$open.Count - 1] }
+    $tokenM = ''
+    $model = ''
+    $toolCount = 0
+    $turnCount = 0
+    $usagePath = Join-Path $SessionDir 'usage.json'
+    if (Test-Path -LiteralPath $usagePath) {
+        $u = Read-JsonFile $usagePath
+        if ($u -and $u.session) {
+            try { if ($u.session.totalTokens) { $tokenM = Format-TokenM $u.session.totalTokens } } catch { }
+            try { if ($u.session.primaryModelId) { $model = [string]$u.session.primaryModelId } } catch { }
+            try { if ($u.session.modelCalls) { $toolCount = [int]$u.session.modelCalls } } catch { }
+        }
+    }
+    return @{
+        CurrentTool = $current
+        Recent      = $arr
+        TokenM      = $tokenM
+        Model       = $model
+        ModelCalls  = $toolCount
+    }
+}
+
 function Format-RunAge {
     param($Started)
     if (-not $Started) { return '' }
@@ -741,12 +816,33 @@ function Find-LatestSessionForCwd {
             if ($sum -and $sum.PSObject.Properties.Name -contains 'last_turn_summary' -and $sum.last_turn_summary) {
                 $detail = Sanitize-Title ([string]$sum.last_turn_summary)
             }
+            $act = Get-SessionActivity $sessionDir.FullName
+            $sid = $sessionDir.Name
+            $model = [string]$act.Model
+            if (-not $model -and $sig -and $sig.primaryModelId) { $model = [string]$sig.primaryModelId }
+            $toolN = 0
+            if ($sig -and $sig.PSObject.Properties.Name -contains 'toolCallCount') {
+                try { $toolN = [int]$sig.toolCallCount } catch { $toolN = 0 }
+            }
+            $turnN = 0
+            if ($sig -and $sig.PSObject.Properties.Name -contains 'turnCount') {
+                try { $turnN = [int]$sig.turnCount } catch { $turnN = 0 }
+            }
             $best = [pscustomobject]@{
-                When     = $when
-                UpdWrite = $updWrite
-                Title    = $title
-                Detail   = $detail
-                Progress = $progress
+                When        = $when
+                UpdWrite    = $updWrite
+                Title       = $title
+                Detail      = $detail
+                Progress    = $progress
+                SessionId   = $sid
+                SessionDir  = $sessionDir.FullName
+                CurrentTool = $act.CurrentTool
+                RecentTools = @($act.Recent)
+                TokenM      = [string]$act.TokenM
+                Model       = $model
+                ToolCount   = $toolN
+                TurnCount   = $turnN
+                ModelCalls  = [int]$act.ModelCalls
             }
         }
     }
@@ -812,17 +908,49 @@ function Get-LiveGrokWindows {
             default   { $detail = '停在提示符，等你说话' }
         }
         if ($meta -and $meta.Detail -and $kind -ne 'created') { $detail = $meta.Detail }
+        $currentTool = $null
+        $recentTools = @()
+        $tokenM = ''
+        $model = ''
+        $toolCount = 0
+        $turnCount = 0
+        $sessionId = ''
+        if ($meta) {
+            $currentTool = $meta.CurrentTool
+            if ($meta.RecentTools) { $recentTools = @($meta.RecentTools) }
+            $tokenM = [string]$meta.TokenM
+            $model = [string]$meta.Model
+            try { $toolCount = [int]$meta.ToolCount } catch { $toolCount = 0 }
+            try { $turnCount = [int]$meta.TurnCount } catch { $turnCount = 0 }
+            $sessionId = [string]$meta.SessionId
+        }
+        $taskLine = ''
+        if ($kind -eq 'working' -and $currentTool) {
+            $taskLine = ('正在执行 {0}' -f $currentTool)
+        } elseif ($kind -eq 'working') {
+            $taskLine = '正在跑这一轮任务'
+        } elseif ($detail) {
+            $taskLine = ('上一轮：{0}' -f $detail)
+        }
 
         $rows += [pscustomobject]@{
-            Pid      = $procId
-            Label    = $leaf
-            Path     = $(if ($cwd) { $cwd } else { '' })
-            Kind     = $kind
-            Title    = $(if ($meta -and $meta.Title) { $meta.Title } else { 'Grok 会话' })
-            Progress = $(if ($meta) { [int]$meta.Progress } else { 0 })
-            AgeText  = Format-RunAge $started
-            LastAgo  = $(if ($meta -and $meta.When) { Format-Ago $meta.When } else { '' })
-            Detail   = $detail
+            Pid          = $procId
+            Label        = $leaf
+            Path         = $(if ($cwd) { $cwd } else { '' })
+            Kind         = $kind
+            Title        = $(if ($meta -and $meta.Title) { $meta.Title } else { 'Grok 会话' })
+            Progress     = $(if ($meta) { [int]$meta.Progress } else { 0 })
+            AgeText      = Format-RunAge $started
+            LastAgo      = $(if ($meta -and $meta.When) { Format-Ago $meta.When } else { '' })
+            Detail       = $detail
+            CurrentTool  = $currentTool
+            RecentTools  = $recentTools
+            TokenM       = $tokenM
+            Model        = $model
+            ToolCount    = $toolCount
+            TurnCount    = $turnCount
+            SessionId    = $sessionId
+            TaskLine     = $taskLine
         }
     }
 
@@ -2085,11 +2213,21 @@ public static class UiUtil {
         $dot.Location = New-Object System.Drawing.Point(12, 10)
         $card.Controls.Add($dot)
 
+        $chev = New-Object System.Windows.Forms.Label
+        $chev.Text = [char]0x25B8
+        $chev.Font = $rowFont
+        $chev.ForeColor = $muted
+        $chev.AutoSize = $true
+        $chev.Location = New-Object System.Drawing.Point(28, 8)
+        $chev.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $card.Controls.Add($chev)
+
         $name = New-Object System.Windows.Forms.Label
         $name.Font = $rowFont
         $name.ForeColor = $text
         $name.AutoSize = $true
-        $name.Location = New-Object System.Drawing.Point(30, 8)
+        $name.Location = New-Object System.Drawing.Point(46, 8)
+        $name.Cursor = [System.Windows.Forms.Cursors]::Hand
         $card.Controls.Add($name)
 
         $badge = New-Object System.Windows.Forms.Label
@@ -2103,8 +2241,20 @@ public static class UiUtil {
         $sub.ForeColor = $muted
         $sub.AutoSize = $false
         $sub.Height = 18
-        $sub.Location = New-Object System.Drawing.Point(30, 30)
+        $sub.Location = New-Object System.Drawing.Point(46, 30)
         $card.Controls.Add($sub)
+
+        $detailBox = New-Object System.Windows.Forms.TextBox
+        $detailBox.Multiline = $true
+        $detailBox.ReadOnly = $true
+        $detailBox.BorderStyle = 'None'
+        $detailBox.BackColor = $bg
+        $detailBox.ForeColor = $muted
+        $detailBox.Font = $smallFont
+        $detailBox.ScrollBars = 'Vertical'
+        $detailBox.Visible = $false
+        $detailBox.Location = New-Object System.Drawing.Point(46, 54)
+        $card.Controls.Add($detailBox)
 
         $btnOpen = New-MiniBtn '打开' 52
         $btnTermW = New-MiniBtn '终端' 52
@@ -2136,11 +2286,25 @@ public static class UiUtil {
 
         $watchFlow.Controls.Add($card)
         $info = @{
-            Panel = $card; Dot = $dot; Name = $name; Badge = $badge
-            Sub = $sub; Kind = $Row.Kind
+            Panel = $card; Dot = $dot; Chev = $chev; Name = $name; Badge = $badge
+            Sub = $sub; DetailBox = $detailBox; Kind = $Row.Kind
             BtnOpen = $btnOpen; BtnTerm = $btnTermW; BtnKill = $btnKill
+            LastRow = $Row
         }
         $script:watchCards[$Row.Pid] = $info
+        $pidToggle = $Row.Pid
+        $toggle = {
+            if (-not $script:watchExpanded.Contains($pidToggle)) { $script:watchExpanded[$pidToggle] = $false }
+            $script:watchExpanded[$pidToggle] = -not [bool]$script:watchExpanded[$pidToggle]
+            if ($script:watchCards.Contains($pidToggle) -and $script:watchCards[$pidToggle].LastRow) {
+                Update-WatchCard $script:watchCards[$pidToggle].LastRow
+            }
+        }.GetNewClosure()
+        $card.Add_Click($toggle)
+        $chev.Add_Click($toggle)
+        $name.Add_Click($toggle)
+        $sub.Add_Click($toggle)
+        $dot.Add_Click($toggle)
         Update-WatchCard $Row
         return $info
     }
@@ -2154,27 +2318,52 @@ public static class UiUtil {
         $info.Badge.ForeColor = $kindColor[$Row.Kind]
         $info.Dot.ForeColor = $kindColor[$Row.Kind]
         $info.Badge.Left = $info.Name.Right + 10
+        $info.Kind = $Row.Kind
+        $info.LastRow = $Row
         $bits = @()
+        if ($Row.TaskLine) { $bits += $Row.TaskLine }
         $bits += ('PID {0}' -f $Row.Pid)
         if ($Row.LastAgo) { $bits += ('最后活动 {0}' -f $Row.LastAgo) }
         if ($Row.AgeText) { $bits += $Row.AgeText }
         $pct = [Math]::Max(0, [Math]::Min(100, [int]$Row.Progress))
         if ($pct -gt 0) { $bits += ('Context {0}%' -f $pct) }
         $info.Sub.Text = ($bits -join '  ·  ')
-        $info.Kind = $Row.Kind
+        $exp = $false
+        if ($script:watchExpanded.Contains($Row.Pid)) { $exp = [bool]$script:watchExpanded[$Row.Pid] }
+        $info.Chev.Text = $(if ($exp) { [char]0x25BE } else { [char]0x25B8 })
         $w = [Math]::Max(640, $watchFlow.ClientSize.Width - 28)
         $info.Panel.Width = $w
-        $info.Panel.Height = 56
+        $info.Panel.Height = $(if ($exp) { 236 } else { 56 })
         $info.Sub.Width = [Math]::Max(200, $w - 220)
         $info.BtnKill.Left = $w - 64
-        $info.BtnKill.Top = 16
+        $info.BtnKill.Top = 14
         $info.BtnTerm.Left = $w - 122
-        $info.BtnTerm.Top = 16
+        $info.BtnTerm.Top = 14
         $info.BtnOpen.Left = $w - 180
-        $info.BtnOpen.Top = 16
+        $info.BtnOpen.Top = 14
         $info.BtnOpen.BackColor = $accent
         $info.BtnOpen.ForeColor = $ink
         $info.BtnOpen.FlatAppearance.BorderSize = 0
+        $dlines = New-Object System.Collections.Generic.List[string]
+        if ($Row.TaskLine) { [void]$dlines.Add($Row.TaskLine) }
+        if ($Row.Title) { [void]$dlines.Add(('标题：{0}' -f $Row.Title)) }
+        if ($Row.Detail) { [void]$dlines.Add(('摘要：{0}' -f $Row.Detail)) }
+        if ($Row.CurrentTool) { [void]$dlines.Add(('正在执行：{0}' -f $Row.CurrentTool)) }
+        $rt = @($Row.RecentTools)
+        if ($rt.Count -gt 0) {
+            [void]$dlines.Add('最近工具：')
+            foreach ($t in $rt) { [void]$dlines.Add(('  {0}' -f $t)) }
+        }
+        [void]$dlines.Add(('模型 {0} · 工具 {1} · 回合 {2} · Token {3} · Context {4}%' -f `
+                    $(if ($Row.Model) { $Row.Model } else { '—' }),
+                    $Row.ToolCount, $Row.TurnCount,
+                    $(if ($Row.TokenM) { $Row.TokenM } else { '—' }),
+                    $pct))
+        if ($Row.Path) { [void]$dlines.Add(('目录：{0}' -f $Row.Path)) }
+        if ($Row.SessionId) { [void]$dlines.Add(('会话：{0}' -f $Row.SessionId)) }
+        $info.DetailBox.Text = ($dlines -join [Environment]::NewLine)
+        $info.DetailBox.Visible = $exp
+        $info.DetailBox.SetBounds(46, 54, [Math]::Max(200, $w - 70), 170)
     }
 
     function Sync-WatchCards {
@@ -2204,7 +2393,7 @@ public static class UiUtil {
         $done = @($rows | Where-Object { $_.Kind -eq 'done' }).Count
         $created = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
         $idleN = @($rows | Where-Object { $_.Kind -eq 'idle' }).Count
-        $watchHint.Text = ('{0} 个窗口 · 工作中 {1} · 空闲 {2}      Context 是上下文占用，不是任务进度' -f $n, $working, $idleN)
+        $watchHint.Text = ('{0} 个窗口 · 工作中 {1} · 空闲 {2}      点开一行看正在执行的工具和最近动作' -f $n, $working, $idleN)
         $watchEmpty.Visible = ($n -eq 0)
         if ($watchEmpty.Visible) { $watchEmpty.BringToFront() } else { $watchFlow.BringToFront() }
         $status.Text = $watchHint.Text
@@ -2234,10 +2423,20 @@ public static class UiUtil {
         $pageWatch.Visible = $true
         $pageWatch.BringToFront()
         $title.Text = '监视 Grok 窗口'
-        $subtitle.Text = '多开窗口会列在这里 · 任务开始和结束会换图标'
+        $subtitle.Text = '点开一行展开正在执行的工具和最近动作'
         Set-Nav 'watch'
         $form.Height = [Math]::Max($form.Height, 560)
         Sync-WatchCards
+        if ($script:ScreenshotWatchMode) {
+            foreach ($k in @($script:watchCards.Keys)) {
+                $lr = $script:watchCards[$k].LastRow
+                if ($lr -and $lr.Kind -eq 'working') {
+                    $script:watchExpanded[$k] = $true
+                    Update-WatchCard $lr
+                    break
+                }
+            }
+        }
         Layout-Buttons
     }
 
