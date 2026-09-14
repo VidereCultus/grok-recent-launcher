@@ -939,7 +939,7 @@ function Open-GrokProjects {
     if ($wt) {
         $wtArgs = New-Object System.Collections.Generic.List[string]
         [void]$wtArgs.Add('-w')
-        [void]$wtArgs.Add('new')
+        [void]$wtArgs.Add('0')
         $first = $true
         foreach ($p in $existing) {
             if (-not $first) { [void]$wtArgs.Add(';') }
