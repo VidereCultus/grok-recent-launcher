@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.9.1'
+$script:AppVersion = '1.9.5'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -588,6 +588,38 @@ function Get-UsageSnapshot {
     }
 }
 
+function Select-LatestPerPath {
+    param($Items, [int]$Take = 8)
+    $sorted = @($Items | Sort-Object When -Descending)
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $out = @()
+    foreach ($item in $sorted) {
+        $key = [string]$item.Path
+        if ([string]::IsNullOrWhiteSpace($key)) { $key = [string]$item.Label }
+        if (-not [string]::IsNullOrWhiteSpace($key)) { $key = $key.TrimEnd('\', '/') }
+        if ([string]::IsNullOrWhiteSpace($key)) { continue }
+        if ($seen.Contains($key)) { continue }
+        [void]$seen.Add($key)
+        $out += $item
+        if ($out.Count -ge $Take) { break }
+    }
+    $leafGroups = @($out | Group-Object Label)
+    $dupLeaves = @{}
+    foreach ($g in $leafGroups) {
+        if ($g.Count -gt 1) { $dupLeaves[$g.Name] = $true }
+    }
+    foreach ($item in $out) {
+        if ($dupLeaves.Contains($item.Label) -and $item.Path) {
+            $parent = Split-Path $item.Path -Parent
+            $parentLeaf = if ($parent) { Split-Path $parent -Leaf } else { '' }
+            if ($parentLeaf) {
+                $item.Label = ('{0} / {1}' -f $parentLeaf, $item.Label)
+            }
+        }
+    }
+    return @($out)
+}
+
 function Get-RecentSessions {
     param([int]$Take = 8)
     if ($script:DemoMode) {
@@ -637,7 +669,7 @@ function Get-RecentSessions {
             }
         }
     }
-    return @($list | Sort-Object When -Descending | Select-Object -First $Take)
+    return @(Select-LatestPerPath -Items $list -Take $Take)
 }
 
 function Ensure-ProcessCwdType {
@@ -709,7 +741,8 @@ function Get-SessionActivity {
     if (Test-Path -LiteralPath $evt) {
         $raw = Get-FileTailText $evt 65536
         foreach ($ln in ($raw -split "`r?`n")) {
-            $t = $ln.Trim()
+            if ($null -eq $ln) { continue }
+            $t = ([string]$ln).Trim()
             if (-not $t.StartsWith('{')) { continue }
             $o = $null
             try { $o = $t | ConvertFrom-Json } catch { continue }
@@ -742,10 +775,12 @@ function Get-SessionActivity {
     $usagePath = Join-Path $SessionDir 'usage.json'
     if (Test-Path -LiteralPath $usagePath) {
         $u = Read-JsonFile $usagePath
-        if ($u -and $u.session) {
-            try { if ($u.session.totalTokens) { $tokenM = Format-TokenM $u.session.totalTokens } } catch { }
-            try { if ($u.session.primaryModelId) { $model = [string]$u.session.primaryModelId } } catch { }
-            try { if ($u.session.modelCalls) { $toolCount = [int]$u.session.modelCalls } } catch { }
+        $sess = $null
+        if ($u -and $u.PSObject.Properties.Name -contains 'session') { $sess = $u.session }
+        if ($sess) {
+            try { if ($sess.PSObject.Properties.Name -contains 'totalTokens' -and $sess.totalTokens) { $tokenM = Format-TokenM $sess.totalTokens } } catch { }
+            try { if ($sess.PSObject.Properties.Name -contains 'primaryModelId' -and $sess.primaryModelId) { $model = [string]$sess.primaryModelId } } catch { }
+            try { if ($sess.PSObject.Properties.Name -contains 'modelCalls' -and $sess.modelCalls) { $toolCount = [int]$sess.modelCalls } } catch { }
         }
     }
     return @{
@@ -827,7 +862,9 @@ function Find-LatestSessionForCwd {
             }
             $sid = $sessionDir.Name
             $model = [string]$act.Model
-            if (-not $model -and $sig -and $sig.primaryModelId) { $model = [string]$sig.primaryModelId }
+            if (-not $model -and $sig -and $sig.PSObject.Properties.Name -contains 'primaryModelId' -and $sig.primaryModelId) {
+                $model = [string]$sig.primaryModelId
+            }
             $toolN = 0
             if ($sig -and $sig.PSObject.Properties.Name -contains 'toolCallCount') {
                 try { $toolN = [int]$sig.toolCallCount } catch { $toolN = 0 }
@@ -925,7 +962,9 @@ function Get-LiveGrokWindows {
         $sessionId = ''
         if ($meta) {
             $currentTool = $meta.CurrentTool
-            if ($meta.RecentTools) { $recentTools = @($meta.RecentTools) }
+            if ($meta.PSObject.Properties.Name -contains 'RecentTools' -and $meta.RecentTools) {
+                $recentTools = @($meta.RecentTools)
+            }
             $tokenM = [string]$meta.TokenM
             $model = [string]$meta.Model
             try { $toolCount = [int]$meta.ToolCount } catch { $toolCount = 0 }
@@ -973,7 +1012,19 @@ function Get-LiveGrokWindows {
 function Format-Ago {
     param($When)
     if (-not $When) { return '' }
-    $local = $When.ToLocalTime().DateTime
+    $local = $null
+    try {
+        if ($When -is [datetimeoffset]) {
+            $local = $When.ToLocalTime().DateTime
+        } elseif ($When -is [datetime]) {
+            $local = $When.ToLocalTime()
+        } else {
+            $local = ([datetimeoffset]$When).ToLocalTime().DateTime
+        }
+    } catch {
+        return ''
+    }
+    if (-not $local) { return '' }
     $span = [datetime]::Now - $local
     if ($span.TotalMinutes -lt 1) { return '刚刚' }
     if ($span.TotalMinutes -lt 60) { return ('{0} 分钟前' -f [int]$span.TotalMinutes) }
@@ -1043,6 +1094,171 @@ function New-ProjectFromPath {
     }
 }
 
+function ConvertTo-ProcessArgumentString {
+    param([AllowEmptyCollection()][string[]]$Parts)
+    if (-not $Parts -or $Parts.Count -eq 0) { return '' }
+    return (
+        $Parts | ForEach-Object {
+            if ($_ -eq ';') { ';' }
+            elseif ($_ -match '[\s"]') { '"{0}"' -f ($_ -replace '"', '\"') }
+            else { $_ }
+        }
+    ) -join ' '
+}
+
+function Build-WtNewTabArgumentString {
+    param(
+        [Parameter(Mandatory)][object[]]$Projects,
+        [ValidateSet('continue', 'new', 'terminal')][string]$Mode,
+        [string]$GrokExe
+    )
+    $chunks = New-Object System.Collections.Generic.List[string]
+    # wt -h: -w 0 always means the current/most recent window.
+    # Do not pass --window last: this WT treats an unknown name as a new window.
+    [void]$chunks.Add('-w')
+    [void]$chunks.Add('0')
+    $first = $true
+    foreach ($p in $Projects) {
+        if (-not $first) { [void]$chunks.Add(';') }
+        [void]$chunks.Add('new-tab')
+        [void]$chunks.Add('--title')
+        [void]$chunks.Add((([string]$p.Label) -replace '[;"]', ' ').Trim())
+        [void]$chunks.Add('-d')
+        [void]$chunks.Add([string]$p.Path)
+        [void]$chunks.Add('--')
+        if ($Mode -eq 'terminal') {
+            [void]$chunks.Add('powershell.exe')
+        } else {
+            [void]$chunks.Add($GrokExe)
+            [void]$chunks.Add('--cwd')
+            [void]$chunks.Add([string]$p.Path)
+            if ($Mode -eq 'continue') { [void]$chunks.Add('-c') }
+        }
+        $first = $false
+    }
+    return ConvertTo-ProcessArgumentString $chunks.ToArray()
+}
+
+function Ensure-WtHostType {
+    if ('WtHost' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class WtHost {
+  public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
+  public static string ListCascadia() {
+    var sb = new StringBuilder();
+    EnumWindows((h, l) => {
+      if (!IsWindowVisible(h) && !IsIconic(h)) return true;
+      var cls = new StringBuilder(256);
+      GetClassName(h, cls, cls.Capacity);
+      if (cls.ToString() != "CASCADIA_HOSTING_WINDOW_CLASS") return true;
+      var title = new StringBuilder(512);
+      GetWindowText(h, title, title.Capacity);
+      sb.Append(h.ToInt64());
+      sb.Append('\t');
+      sb.Append(title);
+      sb.Append('\n');
+      return true;
+    }, IntPtr.Zero);
+    return sb.ToString();
+  }
+  public static void Focus(IntPtr hWnd) {
+    if (hWnd == IntPtr.Zero) return;
+    ShowWindow(hWnd, IsIconic(hWnd) ? 9 : 5);
+    SetForegroundWindow(hWnd);
+  }
+}
+'@
+}
+
+function Get-WtWindowList {
+    Ensure-WtHostType
+    $rows = @()
+    foreach ($ln in ([WtHost]::ListCascadia() -split "`n")) {
+        $t = $ln.Trim()
+        if (-not $t) { continue }
+        $tab = $t.IndexOf("`t")
+        if ($tab -lt 1) { continue }
+        $hwnd = [IntPtr][int64]$t.Substring(0, $tab)
+        $title = $t.Substring($tab + 1)
+        $rows += [pscustomobject]@{ Hwnd = $hwnd; Title = $title }
+    }
+    return $rows
+}
+
+function Get-RunningGrokForPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    Ensure-ProcessCwdType
+    foreach ($p in Get-CimInstance Win32_Process -Filter "Name='grok.exe'" -ErrorAction SilentlyContinue) {
+        $exe = [string]$p.ExecutablePath
+        if ($exe -and $exe -match 'Grok Bot') { continue }
+        $cwd = $null
+        try { $cwd = [ProcessCwd]::Get([int]$p.ProcessId) } catch { $cwd = $null }
+        if (-not $cwd) {
+            $cl = [string]$p.CommandLine
+            if ($cl -match '--cwd\s+"([^"]+)"') { $cwd = $Matches[1] }
+            elseif ($cl -match '--cwd\s+(\S+)') { $cwd = $Matches[1] }
+        }
+        if ($cwd -and (Test-SamePath $cwd $Path)) {
+            return [pscustomobject]@{
+                Pid  = [int]$p.ProcessId
+                Cwd  = $cwd
+            }
+        }
+    }
+    return $null
+}
+
+function Focus-WtWindowForProject {
+    param([string]$Path, [string]$Title)
+    $wins = @(Get-WtWindowList)
+    if ($wins.Count -eq 0) { return $false }
+    $hints = @()
+    if ($Title) { $hints += [string]$Title }
+    if ($Path) {
+        $leaf = Split-Path $Path -Leaf
+        if ($leaf) { $hints += $leaf }
+    }
+    foreach ($hint in $hints) {
+        $h = $hint.Trim()
+        if ([string]::IsNullOrWhiteSpace($h) -or $h.Length -lt 2) { continue }
+        foreach ($w in $wins) {
+            if (-not $w.Title) { continue }
+            if ($w.Title.IndexOf($h, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                [WtHost]::Focus($w.Hwnd)
+                return $true
+            }
+        }
+    }
+    if ($wins.Count -eq 1) {
+        [WtHost]::Focus($wins[0].Hwnd)
+        return $true
+    }
+    return $false
+}
+
+function Invoke-Wt {
+    param([Parameter(Mandatory)][string]$ArgumentString)
+    $wt = Get-WtExe
+    if (-not $wt) { return $false }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $wt
+    $psi.Arguments = $ArgumentString
+    $psi.UseShellExecute = $true
+    [void][System.Diagnostics.Process]::Start($psi)
+    return $true
+}
+
 function Open-GrokProjects {
     param(
         [Parameter(Mandatory)][object[]]$Projects,
@@ -1057,7 +1273,7 @@ function Open-GrokProjects {
         if ($existing.Count -eq 0) {
             throw '选中的目录已经不在磁盘上。'
         }
-        return
+        return [pscustomobject]@{ Focused = 0; Launched = 0 }
     }
 
     if ($existing.Count -eq 0) {
@@ -1070,41 +1286,40 @@ function Open-GrokProjects {
         throw '找不到 grok.exe。确认已安装 Grok，并且 ~/.grok/bin 在 PATH 里。'
     }
 
-    # Windows Terminal treats a top-level ";" as a new command. Never put ";"
-    # inside -Command, or WT will try to start "& '...\grok.exe'" as a file.
-    if ($wt) {
-        $wtArgs = New-Object System.Collections.Generic.List[string]
-        [void]$wtArgs.Add('-w')
-        [void]$wtArgs.Add('0')
-        $first = $true
-        foreach ($p in $existing) {
-            if (-not $first) { [void]$wtArgs.Add(';') }
-            [void]$wtArgs.Add('new-tab')
-            [void]$wtArgs.Add('--title')
-            [void]$wtArgs.Add(($p.Label -replace '[;"]', ' '))
-            [void]$wtArgs.Add('-d')
-            [void]$wtArgs.Add($p.Path)
-            if ($Mode -eq 'terminal') {
-                [void]$wtArgs.Add('powershell.exe')
-            } else {
-                [void]$wtArgs.Add($grok)
-                [void]$wtArgs.Add('--cwd')
-                [void]$wtArgs.Add($p.Path)
-                if ($Mode -eq 'continue') { [void]$wtArgs.Add('-c') }
+    $focused = 0
+    $toLaunch = @()
+    foreach ($p in $existing) {
+        if ($Mode -eq 'continue') {
+            $live = Get-RunningGrokForPath $p.Path
+            if ($live) {
+                $hint = ''
+                if ($p.PSObject.Properties.Name -contains 'LastTitle' -and $p.LastTitle) { $hint = [string]$p.LastTitle }
+                elseif ($p.PSObject.Properties.Name -contains 'Title' -and $p.Title) { $hint = [string]$p.Title }
+                [void](Focus-WtWindowForProject -Path $p.Path -Title $hint)
+                $focused += 1
+                continue
             }
-            $first = $false
         }
-        $argLine = (
-            $wtArgs | ForEach-Object {
-                if ($_ -eq ';') { ';' }
-                else { '"{0}"' -f ($_ -replace '"', '\"') }
-            }
-        ) -join ' '
-        Start-Process -FilePath $wt -ArgumentList $argLine | Out-Null
-        return
+        $toLaunch += $p
     }
 
-    foreach ($p in $existing) {
+    if ($toLaunch.Count -eq 0) {
+        return [pscustomobject]@{ Focused = $focused; Launched = 0 }
+    }
+
+    # Windows Terminal treats a top-level ";" as a new command. Never put ";"
+    # inside a powershell -Command, or WT will try to start "& '...\grok.exe'" as a file.
+    if ($wt) {
+        $argStr = Build-WtNewTabArgumentString -Projects $toLaunch -Mode $Mode -GrokExe $grok
+        [void](Invoke-Wt $argStr)
+        Start-Sleep -Milliseconds 250
+        $hint = ''
+        if ($toLaunch[0].PSObject.Properties.Name -contains 'LastTitle') { $hint = [string]$toLaunch[0].LastTitle }
+        [void](Focus-WtWindowForProject -Path $toLaunch[0].Path -Title $hint)
+        return [pscustomobject]@{ Focused = $focused; Launched = $toLaunch.Count }
+    }
+
+    foreach ($p in $toLaunch) {
         if ($Mode -eq 'terminal') {
             Start-Process -FilePath 'powershell.exe' -WorkingDirectory $p.Path | Out-Null
             continue
@@ -1113,6 +1328,7 @@ function Open-GrokProjects {
         if ($Mode -eq 'continue') { $arg += '-c' }
         Start-Process -FilePath $grok -ArgumentList $arg -WorkingDirectory $p.Path | Out-Null
     }
+    return [pscustomobject]@{ Focused = $focused; Launched = $toLaunch.Count }
 }
 
 if ($WatchList) {
@@ -2298,8 +2514,15 @@ public static class UiUtil {
             return
         }
         try {
-            Open-GrokProjects -Projects $picked -Mode $Mode
-            Show-StatusFeedback '已拉起终端会话'
+            $result = Open-GrokProjects -Projects $picked -Mode $Mode
+            if ($Mode -eq 'folder') { Show-StatusFeedback '已打开文件夹'; return }
+            if ($result -and $result.Launched -eq 0 -and $result.Focused -gt 0) {
+                Show-StatusFeedback '该项目已在运行，已切到现有终端'
+            } elseif ($result -and $result.Focused -gt 0) {
+                Show-StatusFeedback '已切到现有会话，其余在当前终端打开新标签'
+            } else {
+                Show-StatusFeedback '已在现有终端打开新标签'
+            }
         } catch {
             [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
         }
@@ -2325,7 +2548,7 @@ public static class UiUtil {
         $status.Text = ('正在打开：{0}' -f $proj.Path)
         try {
             Open-GrokProjects -Projects @($proj) -Mode 'new'
-            Show-StatusFeedback ('已在该文件夹打开：{0}' -f $proj.Path)
+            Show-StatusFeedback ('已在现有终端打开：{0}' -f $proj.Path)
         } catch {
             [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '打开失败') | Out-Null
         }
@@ -2442,20 +2665,22 @@ public static class UiUtil {
         $card.Controls.Add($laser)
         $laser.Add_Paint({
                 param($s, $e)
-                if ($script:activePage -ne 'watch') { return }
-                $g = $e.Graphics
-                $wdt = [Math]::Max(1, $s.Width)
-                $beamW = [int]($wdt * 0.35)
-                $startX = [int]($wdt * $script:laserPhase)
-                $rect = New-Object System.Drawing.Rectangle($startX, 0, $beamW, 2)
-                $br = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
-                    $rect,
-                    [System.Drawing.Color]::FromArgb(0, 16, 185, 129),
-                    [System.Drawing.Color]::FromArgb(220, 245, 158, 11),
-                    [System.Drawing.Drawing2D.LinearGradientMode]::Horizontal
-                )
-                $g.FillRectangle($br, $rect)
-                $br.Dispose()
+                try {
+                    if ($script:activePage -ne 'watch') { return }
+                    $g = $e.Graphics
+                    $wdt = [Math]::Max(1, $s.Width)
+                    $beamW = [int]([Math]::Max(8, $wdt * 0.35))
+                    $startX = [int]($wdt * $script:laserPhase)
+                    $rect = New-Object System.Drawing.Rectangle($startX, 0, $beamW, 2)
+                    $br = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+                        $rect,
+                        [System.Drawing.Color]::FromArgb(0, 16, 185, 129),
+                        [System.Drawing.Color]::FromArgb(220, 245, 158, 11),
+                        [System.Drawing.Drawing2D.LinearGradientMode]::Horizontal
+                    )
+                    $g.FillRectangle($br, $rect)
+                    $br.Dispose()
+                } catch { }
             })
         $ctxLed = New-Object System.Windows.Forms.Panel
         $ctxLed.SetBounds(46, 214, 80, 12)
@@ -2464,26 +2689,32 @@ public static class UiUtil {
         $card.Controls.Add($ctxLed)
         $ctxLed.Add_Paint({
                 param($s, $e)
-                $g = $e.Graphics
-                $ratio = 0.0
-                $hostCard = $s.Parent
-                if ($hostCard -and $script:watchCards.Contains($hostCard.Tag)) {
-                    $lr = $script:watchCards[$hostCard.Tag].LastRow
-                    if ($lr) { $ratio = [Math]::Max(0, [Math]::Min(1, [double]$lr.Progress / 100.0)) }
-                }
-                $filled = [int][Math]::Round($ratio * 10)
-                for ($i = 0; $i -lt 10; $i++) {
-                    $x = $i * 8
-                    $c = [System.Drawing.Color]::FromArgb(28, 34, 46)
-                    if ($i -lt $filled) {
-                        if ($i -lt 3) { $c = [System.Drawing.Color]::FromArgb(16, 185, 129) }
-                        elseif ($i -lt 7) { $c = [System.Drawing.Color]::FromArgb(245, 158, 11) }
-                        else { $c = [System.Drawing.Color]::FromArgb(244, 63, 94) }
+                try {
+                    $g = $e.Graphics
+                    $ratio = 0.0
+                    $hostCard = $s.Parent
+                    if ($hostCard -and $script:watchCards -is [hashtable] -and $script:watchCards.Contains($hostCard.Tag)) {
+                        $lr = $script:watchCards[$hostCard.Tag]['LastRow']
+                        if ($lr) {
+                            $pctLed = 0
+                            try { $pctLed = [double]$lr.Progress } catch { $pctLed = 0 }
+                            $ratio = [Math]::Max(0, [Math]::Min(1, $pctLed / 100.0))
+                        }
                     }
-                    $b = New-Object System.Drawing.SolidBrush($c)
-                    $g.FillRectangle($b, $x, 3, 6, 6)
-                    $b.Dispose()
-                }
+                    $filled = [int][Math]::Round($ratio * 10)
+                    for ($i = 0; $i -lt 10; $i++) {
+                        $x = $i * 8
+                        $c = [System.Drawing.Color]::FromArgb(28, 34, 46)
+                        if ($i -lt $filled) {
+                            if ($i -lt 3) { $c = [System.Drawing.Color]::FromArgb(16, 185, 129) }
+                            elseif ($i -lt 7) { $c = [System.Drawing.Color]::FromArgb(245, 158, 11) }
+                            else { $c = [System.Drawing.Color]::FromArgb(244, 63, 94) }
+                        }
+                        $b = New-Object System.Drawing.SolidBrush($c)
+                        $g.FillRectangle($b, $x, 3, 6, 6)
+                        $b.Dispose()
+                    }
+                } catch { }
             })
 
         $dot = New-Object System.Windows.Forms.Label
@@ -2572,129 +2803,178 @@ public static class UiUtil {
             LastRow = $Row; Laser = $laser; CtxLed = $ctxLed
         }
         $script:watchCards[$Row.Pid] = $info
-        $pidToggle = $Row.Pid
-        $toggle = {
-            if (-not $script:watchExpanded.Contains($pidToggle)) { $script:watchExpanded[$pidToggle] = $false }
-            $script:watchExpanded[$pidToggle] = -not [bool]$script:watchExpanded[$pidToggle]
-            if ($script:watchCards.Contains($pidToggle) -and $script:watchCards[$pidToggle].LastRow) {
-                Update-WatchCard $script:watchCards[$pidToggle].LastRow
+        # Do not use GetNewClosure here: it rebinds $script: to an empty
+        # module, so $script:watchExpanded.Contains() throws
+        # "不能对 Null 值表达式调用方法" on label click.
+        $expandClick = {
+            try {
+                $watchPid = $null
+                try { $watchPid = [int]$this.Tag } catch { return }
+                if ($watchPid -le 0) { return }
+                if ($null -eq $script:watchExpanded -or $script:watchExpanded -isnot [hashtable]) { $script:watchExpanded = @{} }
+                if ($null -eq $script:watchCards -or $script:watchCards -isnot [hashtable]) { $script:watchCards = @{} }
+                if (-not $script:watchExpanded.Contains($watchPid)) { $script:watchExpanded[$watchPid] = $false }
+                $script:watchExpanded[$watchPid] = -not [bool]$script:watchExpanded[$watchPid]
+                if ($script:watchCards.Contains($watchPid) -and $script:watchCards[$watchPid] -and $script:watchCards[$watchPid]['LastRow']) {
+                    Update-WatchCard $script:watchCards[$watchPid]['LastRow']
+                }
+            } catch {
+                try { [System.IO.File]::AppendAllText($script:ErrorLog, ("{0}`r`n{1}`r`n`r`n" -f (Get-Date), $_.Exception)) } catch { }
             }
-        }.GetNewClosure()
-        $card.Add_Click($toggle)
-        $chev.Add_Click($toggle)
-        $name.Add_Click($toggle)
-        $sub.Add_Click($toggle)
-        $dot.Add_Click($toggle)
+        }
+        foreach ($ctl in @($card, $chev, $name, $sub, $dot)) {
+            $ctl.Tag = $Row.Pid
+            $ctl.Add_Click($expandClick)
+        }
         Update-WatchCard $Row
         return $info
     }
 
     function Update-WatchCard {
         param($Row)
-        $info = $script:watchCards[$Row.Pid]
-        if (-not $info) { return }
-        $info.Name.Text = $Row.Label
-        $info.Badge.Text = $kindLabel[$Row.Kind]
-        $info.Badge.ForeColor = $kindColor[$Row.Kind]
-        $info.Dot.ForeColor = $kindColor[$Row.Kind]
-        $info.Badge.Left = $info.Name.Right + 10
-        $info.Kind = $Row.Kind
-        $info.LastRow = $Row
-        $bits = @()
-        if ($Row.TaskLine) { $bits += $Row.TaskLine }
-        $bits += ('PID {0}' -f $Row.Pid)
-        if ($Row.LastAgo) { $bits += ('最后活动 {0}' -f $Row.LastAgo) }
-        if ($Row.AgeText) { $bits += $Row.AgeText }
-        $pct = [Math]::Max(0, [Math]::Min(100, [int]$Row.Progress))
-        if ($pct -gt 0) { $bits += ('Context {0}%' -f $pct) }
-        $info.Sub.Text = ($bits -join '  ·  ')
-        $exp = $false
-        if ($script:watchExpanded.Contains($Row.Pid)) { $exp = [bool]$script:watchExpanded[$Row.Pid] }
-        $info.Chev.Text = $(if ($exp) { [char]0x25BE } else { [char]0x25B8 })
-        $w = [Math]::Max(640, $watchFlow.ClientSize.Width - 28)
-        $info.Panel.Width = $w
-        $info.Panel.Height = $(if ($exp) { 236 } else { 56 })
-        $info.Sub.Width = [Math]::Max(200, $w - 220)
-        $info.BtnKill.Left = $w - 64
-        $info.BtnKill.Top = 14
-        $info.BtnTerm.Left = $w - 122
-        $info.BtnTerm.Top = 14
-        $info.BtnOpen.Left = $w - 180
-        $info.BtnOpen.Top = 14
-        $info.BtnOpen.BackColor = $accent
-        $info.BtnOpen.ForeColor = $ink
-        $info.BtnOpen.FlatAppearance.BorderSize = 0
-        $dlines = New-Object System.Collections.Generic.List[string]
-        if ($Row.TaskLine) { [void]$dlines.Add($Row.TaskLine) }
-        if ($Row.Title) { [void]$dlines.Add(('标题：{0}' -f $Row.Title)) }
-        if ($Row.Detail) { [void]$dlines.Add(('摘要：{0}' -f $Row.Detail)) }
-        if ($Row.CurrentTool) { [void]$dlines.Add(('正在执行：{0}' -f $Row.CurrentTool)) }
-        $rt = @($Row.RecentTools)
-        if ($rt.Count -gt 0) {
-            [void]$dlines.Add('最近工具：')
-            foreach ($t in $rt) { [void]$dlines.Add(('  {0}' -f $t)) }
+        try {
+            if (-not $Row) { return }
+            if ($null -eq $script:watchCards -or $script:watchCards -isnot [hashtable]) { $script:watchCards = @{} }
+            if ($null -eq $script:watchExpanded -or $script:watchExpanded -isnot [hashtable]) { $script:watchExpanded = @{} }
+            $info = $script:watchCards[$Row.Pid]
+            if (-not $info) { return }
+            $kind = [string]$Row.Kind
+            $kc = $kindColor[$kind]
+            if (-not $kc) { $kc = $idleC }
+            $kl = $kindLabel[$kind]
+            if (-not $kl) { $kl = $kind }
+            if ($info.Name) { $info.Name.Text = [string]$Row.Label }
+            if ($info.Badge) {
+                $info.Badge.Text = $kl
+                $info.Badge.ForeColor = $kc
+                if ($info.Name) { $info.Badge.Left = $info.Name.Right + 10 }
+            }
+            if ($info.Dot) { $info.Dot.ForeColor = $kc }
+            $info.Kind = $kind
+            $info.LastRow = $Row
+            $bits = @()
+            if ($Row.TaskLine) { $bits += [string]$Row.TaskLine }
+            $bits += ('PID {0}' -f $Row.Pid)
+            if ($Row.LastAgo) { $bits += ('最后活动 {0}' -f $Row.LastAgo) }
+            if ($Row.AgeText) { $bits += [string]$Row.AgeText }
+            $pct = 0
+            try { $pct = [Math]::Max(0, [Math]::Min(100, [int]$Row.Progress)) } catch { $pct = 0 }
+            if ($pct -gt 0) { $bits += ('Context {0}%' -f $pct) }
+            if ($info.Sub) { $info.Sub.Text = ($bits -join '  ·  ') }
+            $exp = $false
+            if ($script:watchExpanded.Contains($Row.Pid)) { $exp = [bool]$script:watchExpanded[$Row.Pid] }
+            if ($info.Chev) { $info.Chev.Text = $(if ($exp) { [char]0x25BE } else { [char]0x25B8 }) }
+            $w = [Math]::Max(640, $watchFlow.ClientSize.Width - 28)
+            if ($info.Panel) {
+                $info.Panel.Width = $w
+                $info.Panel.Height = $(if ($exp) { 236 } else { 56 })
+            }
+            if ($info.Sub) { $info.Sub.Width = [Math]::Max(200, $w - 220) }
+            if ($info.BtnKill) { $info.BtnKill.Left = $w - 64; $info.BtnKill.Top = 14 }
+            if ($info.BtnTerm) { $info.BtnTerm.Left = $w - 122; $info.BtnTerm.Top = 14 }
+            if ($info.BtnOpen) {
+                $info.BtnOpen.Left = $w - 180
+                $info.BtnOpen.Top = 14
+                $info.BtnOpen.BackColor = $accent
+                $info.BtnOpen.ForeColor = $ink
+                $info.BtnOpen.FlatAppearance.BorderSize = 0
+            }
+            $dlines = New-Object System.Collections.Generic.List[string]
+            if ($Row.TaskLine) { [void]$dlines.Add([string]$Row.TaskLine) }
+            if ($Row.Title) { [void]$dlines.Add(('标题：{0}' -f $Row.Title)) }
+            if ($Row.Detail) { [void]$dlines.Add(('摘要：{0}' -f $Row.Detail)) }
+            if ($Row.CurrentTool) { [void]$dlines.Add(('正在执行：{0}' -f $Row.CurrentTool)) }
+            $rt = @()
+            try {
+                if ($Row.PSObject.Properties.Name -contains 'RecentTools' -and $Row.RecentTools) {
+                    $rt = @($Row.RecentTools)
+                }
+            } catch { $rt = @() }
+            if ($rt.Count -gt 0) {
+                [void]$dlines.Add('最近工具：')
+                foreach ($t in $rt) { [void]$dlines.Add(('  {0}' -f $t)) }
+            }
+            $toolN = 0; $turnN = 0
+            try { $toolN = [int]$Row.ToolCount } catch { }
+            try { $turnN = [int]$Row.TurnCount } catch { }
+            [void]$dlines.Add(('模型 {0} · 工具 {1} · 回合 {2} · Token {3} · Context {4}%' -f `
+                        $(if ($Row.Model) { $Row.Model } else { '—' }),
+                        $toolN, $turnN,
+                        $(if ($Row.TokenM) { $Row.TokenM } else { '—' }),
+                        $pct))
+            if ($Row.Path) { [void]$dlines.Add(('目录：{0}' -f $Row.Path)) }
+            if ($Row.SessionId) { [void]$dlines.Add(('会话：{0}' -f $Row.SessionId)) }
+            if ($info.DetailBox) {
+                $info.DetailBox.Text = ($dlines -join [Environment]::NewLine)
+                $info.DetailBox.Visible = $exp
+                $info.DetailBox.SetBounds(46, 54, [Math]::Max(200, $w - 70), 150)
+            }
+            if ($info.Laser) {
+                $info.Laser.Visible = ($kind -eq 'working')
+                $info.Laser.Invalidate()
+            }
+            if ($info.CtxLed) {
+                $info.CtxLed.Visible = $exp
+                $info.CtxLed.SetBounds(46, 210, 90, 14)
+                $info.CtxLed.Invalidate()
+            }
+        } catch {
+            try { [System.IO.File]::AppendAllText($script:ErrorLog, ("{0}`r`n{1}`r`n`r`n" -f (Get-Date), $_.Exception)) } catch { }
         }
-        [void]$dlines.Add(('模型 {0} · 工具 {1} · 回合 {2} · Token {3} · Context {4}%' -f `
-                    $(if ($Row.Model) { $Row.Model } else { '—' }),
-                    $Row.ToolCount, $Row.TurnCount,
-                    $(if ($Row.TokenM) { $Row.TokenM } else { '—' }),
-                    $pct))
-        if ($Row.Path) { [void]$dlines.Add(('目录：{0}' -f $Row.Path)) }
-        if ($Row.SessionId) { [void]$dlines.Add(('会话：{0}' -f $Row.SessionId)) }
-        $info.DetailBox.Text = ($dlines -join [Environment]::NewLine)
-        $info.DetailBox.Visible = $exp
-        $info.DetailBox.SetBounds(46, 54, [Math]::Max(200, $w - 70), 150)
-        $info.Laser.Visible = ($Row.Kind -eq 'working')
-        $info.CtxLed.Visible = $exp
-        $info.CtxLed.SetBounds(46, 210, 90, 14)
-        $info.CtxLed.Invalidate()
-        $info.Laser.Invalidate()
     }
 
     function Sync-WatchCards {
-        $rows = if ($script:DemoMode) { @(Get-DemoLiveWindows) } else { @(Get-LiveGrokWindows) }
-        $live = New-Object 'System.Collections.Generic.HashSet[int]'
-        foreach ($row in $rows) {
-            [void]$live.Add([int]$row.Pid)
-            if (-not $script:watchCards.Contains($row.Pid)) {
-                New-WatchCard $row | Out-Null
-            } else {
-                Update-WatchCard $row
+        try {
+            if ($null -eq $script:watchCards -or $script:watchCards -isnot [hashtable]) { $script:watchCards = @{} }
+            if ($null -eq $script:watchExpanded -or $script:watchExpanded -isnot [hashtable]) { $script:watchExpanded = @{} }
+            if ($null -eq $script:watchFilterBtns -or $script:watchFilterBtns -isnot [hashtable]) { $script:watchFilterBtns = @{} }
+            $rows = if ($script:DemoMode) { @(Get-DemoLiveWindows) } else { @(Get-LiveGrokWindows) }
+            $live = New-Object 'System.Collections.Generic.HashSet[int]'
+            foreach ($row in $rows) {
+                [void]$live.Add([int]$row.Pid)
+                if (-not $script:watchCards.Contains($row.Pid)) {
+                    New-WatchCard $row | Out-Null
+                } else {
+                    Update-WatchCard $row
+                }
+                $show = ($script:watchFilter -eq 'all' -or $row.Kind -eq $script:watchFilter)
+                if ($script:watchCards.Contains($row.Pid) -and $script:watchCards[$row.Pid] -and $script:watchCards[$row.Pid].Panel) {
+                    $script:watchCards[$row.Pid].Panel.Visible = $show
+                }
             }
-            $show = ($script:watchFilter -eq 'all' -or $row.Kind -eq $script:watchFilter)
-            if ($script:watchCards.Contains($row.Pid)) {
-                $script:watchCards[$row.Pid].Panel.Visible = $show
+            $dead = @()
+            foreach ($cardId in @($script:watchCards.Keys)) {
+                if (-not $live.Contains([int]$cardId)) { $dead += $cardId }
             }
+            foreach ($cardId in $dead) {
+                $info = $script:watchCards[$cardId]
+                if ($info -and $info.Contains('Pic') -and $info.Pic -and $info.Pic.Image) { $info.Pic.Image.Dispose() }
+                if ($info -and $info.Panel) {
+                    $watchFlow.Controls.Remove($info.Panel)
+                    $info.Panel.Dispose()
+                }
+                $script:watchCards.Remove($cardId)
+            }
+            $n = $rows.Count
+            $working = @($rows | Where-Object { $_.Kind -eq 'working' }).Count
+            $idleN = @($rows | Where-Object { $_.Kind -eq 'idle' }).Count
+            $createdN = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
+            if ($script:watchFilterBtns.Contains('all') -and $script:watchFilterBtns['all']) { $script:watchFilterBtns['all'].Text = ('全部 {0}' -f $n) }
+            if ($script:watchFilterBtns.Contains('working') -and $script:watchFilterBtns['working']) { $script:watchFilterBtns['working'].Text = ('工作中 {0}' -f $working) }
+            if ($script:watchFilterBtns.Contains('idle') -and $script:watchFilterBtns['idle']) { $script:watchFilterBtns['idle'].Text = ('空闲 {0}' -f $idleN) }
+            if ($script:watchFilterBtns.Contains('created') -and $script:watchFilterBtns['created']) { $script:watchFilterBtns['created'].Text = ('刚创建 {0}' -f $createdN) }
+            foreach ($fk in @($script:watchFilterBtns.Keys)) {
+                $fb = $script:watchFilterBtns[$fk]
+                if (-not $fb) { continue }
+                if ($fk -eq $script:watchFilter) { $fb.ForeColor = $accent; $fb.BackColor = $hover }
+                else { $fb.ForeColor = $muted; $fb.BackColor = $panel }
+            }
+            $watchEmpty.Visible = ($n -eq 0)
+            if ($watchEmpty.Visible) { $watchEmpty.BringToFront() } else { $watchFlow.BringToFront() }
+            $status.Text = ('{0} 个窗口 · 工作中 {1} · 空闲 {2}      点开一行看正在执行的工具' -f $n, $working, $idleN)
+        } catch {
+            try { [System.IO.File]::AppendAllText($script:ErrorLog, ("{0}`r`n{1}`r`n`r`n" -f (Get-Date), $_.Exception)) } catch { }
         }
-        $dead = @()
-        foreach ($cardId in @($script:watchCards.Keys)) {
-            if (-not $live.Contains([int]$cardId)) { $dead += $cardId }
-        }
-        foreach ($cardId in $dead) {
-            $info = $script:watchCards[$cardId]
-            if ($info.Contains('Pic') -and $info.Pic -and $info.Pic.Image) { $info.Pic.Image.Dispose() }
-            $watchFlow.Controls.Remove($info.Panel)
-            $info.Panel.Dispose()
-            $script:watchCards.Remove($cardId)
-        }
-        $n = $rows.Count
-        $working = @($rows | Where-Object { $_.Kind -eq 'working' }).Count
-        $done = @($rows | Where-Object { $_.Kind -eq 'done' }).Count
-        $created = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
-        $idleN = @($rows | Where-Object { $_.Kind -eq 'idle' }).Count
-        $createdN = @($rows | Where-Object { $_.Kind -eq 'created' }).Count
-        if ($script:watchFilterBtns.Contains('all')) { $script:watchFilterBtns['all'].Text = ('全部 {0}' -f $n) }
-        if ($script:watchFilterBtns.Contains('working')) { $script:watchFilterBtns['working'].Text = ('工作中 {0}' -f $working) }
-        if ($script:watchFilterBtns.Contains('idle')) { $script:watchFilterBtns['idle'].Text = ('空闲 {0}' -f $idleN) }
-        if ($script:watchFilterBtns.Contains('created')) { $script:watchFilterBtns['created'].Text = ('刚创建 {0}' -f $createdN) }
-        foreach ($fk in @($script:watchFilterBtns.Keys)) {
-            $fb = $script:watchFilterBtns[$fk]
-            if ($fk -eq $script:watchFilter) { $fb.ForeColor = $accent; $fb.BackColor = $hover }
-            else { $fb.ForeColor = $muted; $fb.BackColor = $panel }
-        }
-        $watchEmpty.Visible = ($n -eq 0)
-        if ($watchEmpty.Visible) { $watchEmpty.BringToFront() } else { $watchFlow.BringToFront() }
-        $status.Text = ('{0} 个窗口 · 工作中 {1} · 空闲 {2}      点开一行看正在执行的工具' -f $n, $working, $idleN)
     }
 
     function Show-ProjectsPage {
@@ -3151,24 +3431,33 @@ public static class UiUtil {
     $scanTimer = New-Object System.Windows.Forms.Timer
     $scanTimer.Interval = 1500
     $scanTimer.Add_Tick({
-            if ($script:activePage -eq 'watch') { Sync-WatchCards }
+            try {
+                if ($script:activePage -eq 'watch') { Sync-WatchCards }
+            } catch {
+                try { [System.IO.File]::AppendAllText($script:ErrorLog, ("{0}`r`n{1}`r`n`r`n" -f (Get-Date), $_.Exception)) } catch { }
+            }
         })
     $scanTimer.Start()
     $spinTimer = New-Object System.Windows.Forms.Timer
     $spinTimer.Interval = 90
     $spinTimer.Add_Tick({
-            if ($script:activePage -ne 'watch') { return }
-            $script:spinAngle = ($script:spinAngle + 24) % 360
-            $script:laserPhase += 0.05
-            if ($script:laserPhase -gt 1.2) { $script:laserPhase = -0.4 }
-            foreach ($info in @($script:watchCards.Values)) {
-                if ($info.Contains('Dot')) {
-                    $info.Dot.ForeColor = $kindColor[$info.Kind]
+            try {
+                if ($script:activePage -ne 'watch') { return }
+                $script:spinAngle = ($script:spinAngle + 24) % 360
+                $script:laserPhase += 0.05
+                if ($script:laserPhase -gt 1.2) { $script:laserPhase = -0.4 }
+                if ($script:watchCards -isnot [hashtable]) { return }
+                foreach ($info in @($script:watchCards.Values)) {
+                    if (-not $info) { continue }
+                    if ($info.Contains('Dot') -and $info.Dot) {
+                        $kc = $kindColor[$info.Kind]
+                        if ($kc) { $info.Dot.ForeColor = $kc }
+                    }
+                    if ($info.Contains('Laser') -and $info.Laser -and $info.Laser.Visible) {
+                        $info.Laser.Invalidate()
+                    }
                 }
-                if ($info.Contains('Laser') -and $info.Laser -and $info.Laser.Visible) {
-                    $info.Laser.Invalidate()
-                }
-            }
+            } catch { }
         })
     $spinTimer.Start()
     $form.Add_FormClosing({

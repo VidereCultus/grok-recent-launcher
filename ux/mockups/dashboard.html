@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>仪表盘 - UX 2.0 视觉设计稿</title>
+  <link rel="stylesheet" href="design-tokens.css">
+  <style>
+    html { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg-app);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      padding: 24px;
+      font-size: 13px;
+    }
+    .page-container {
+      max-width: 1040px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    /* Header */
+    .view-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-default);
+    }
+    .view-title { font-size: 20px; font-weight: 600; font-family: var(--font-display); }
+    .view-sub { color: var(--text-tertiary); font-size: 12px; margin-left: 10px; }
+
+    /* KPI Row */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr 1fr 1fr 1.2fr;
+      gap: 12px;
+    }
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      transition: transform var(--duration-fast), border-color var(--duration-fast);
+    }
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+    }
+    .kpi-card.hero {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, var(--bg-surface) 100%);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+    .kpi-title { font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.03em; }
+    .kpi-num { font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: var(--text-primary); margin: 6px 0; }
+    .kpi-card.hero .kpi-num { color: var(--accent-primary); font-size: 28px; }
+    .kpi-foot { font-size: 11px; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; }
+    .tag-trend {
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--status-working);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    /* Chart */
+    .chart-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      height: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .chart-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .chart-title { font-weight: 600; font-size: 12px; }
+    .range-pills {
+      display: flex;
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      padding: 2px;
+      gap: 2px;
+    }
+    .range-pill {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all var(--duration-fast);
+    }
+    .range-pill.active {
+      background: var(--bg-surface-hover);
+      color: var(--accent-primary);
+      font-weight: 600;
+    }
+
+    /* Split Section */
+    .dash-split {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 14px;
+    }
+    .split-col {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .split-head {
+      height: 40px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .split-content {
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Ranking Rows */
+    .rank-item {
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: background var(--duration-fast);
+    }
+    .rank-item:hover { background: var(--bg-surface-hover); }
+    .rank-info { display: flex; justify-content: space-between; font-size: 12px; }
+    .rank-name { font-weight: 500; color: var(--text-primary); }
+    .rank-nums { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+    .rank-bar-bg { height: 4px; background: #1c222e; border-radius: 2px; overflow: hidden; }
+    .rank-bar-fill { height: 100%; background: linear-gradient(90deg, #b45309, var(--accent-primary)); border-radius: 2px; }
+
+    /* Session List */
+    .sess-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--duration-fast);
+    }
+    .sess-row:hover { background: var(--bg-surface-hover); }
+    .sess-row:active { transform: scale(0.99); }
+    .sess-title { font-weight: 500; color: var(--text-primary); }
+    .sess-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); }
+
+    .btn-quick {
+      background: var(--accent-primary);
+      color: var(--text-inverse);
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--duration-fast);
+    }
+    .btn-quick:hover { background: var(--accent-hover); box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3); }
+    .btn-quick:active { transform: translateY(1px) scale(0.97); }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <div class="view-header">
+      <div>
+        <span class="view-title">仪表盘 / 用量全貌</span>
+        <span class="view-sub">先看总量，再看今天，再看哪个项目吃得最多</span>
+      </div>
+      <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary);">
+        最后同步: 刚刚 · 模型: grok-4.6
+      </div>
+    </div>
+
+    <!-- 5 KPI Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card hero">
+        <span class="kpi-title">近 7 天总量</span>
+        <div class="kpi-num">11.38 M</div>
+        <div class="kpi-foot"><span class="tag-trend">↑ 14.2%</span> 较上周同期环比</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-title">今日用量</span>
+        <div class="kpi-num">8.63 M</div>
+        <div class="kpi-foot"><span class="tag-trend">进行中</span> 占统计周期 75.8%</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-title">输入 Tokens</span>
+        <div class="kpi-num">11.33 M</div>
+        <div class="kpi-foot">输入占比 99.6%</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-title">输出 Tokens</span>
+        <div class="kpi-num">0.05 M</div>
+        <div class="kpi-foot">输出占比 0.4%</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-title">活跃会话</span>
+        <div class="kpi-num">29</div>
+        <div class="kpi-foot">29 个会话 · 4 个活跃窗口</div>
+      </div>
+    </div>
+
+    <!-- Chart Panel -->
+    <div class="chart-box">
+      <div class="chart-top">
+        <span class="chart-title">Token 用量趋势柱状图</span>
+        <div class="range-pills">
+          <button class="range-pill">今天</button>
+          <button class="range-pill active">近 7 天</button>
+          <button class="range-pill">近 30 天</button>
+          <button class="range-pill">全部</button>
+        </div>
+      </div>
+      <div style="flex: 1;">
+        <svg width="100%" height="100%" viewBox="0 0 1000 150" preserveAspectRatio="none">
+          <line x1="50" y1="20" x2="980" y2="20" stroke="#1f2532" stroke-dasharray="3,3"/>
+          <text x="15" y="24" fill="#64748b" font-size="10" font-family="monospace">10.00 M</text>
+          <line x1="50" y1="75" x2="980" y2="75" stroke="#1f2532" stroke-dasharray="3,3"/>
+          <text x="15" y="79" fill="#64748b" font-size="10" font-family="monospace">5.00 M</text>
+          <line x1="50" y1="130" x2="980" y2="130" stroke="#232a38"/>
+          <text x="15" y="134" fill="#64748b" font-size="10" font-family="monospace">0.00 M</text>
+
+          <rect x="70" y="126" width="90" height="4" rx="2" fill="#2d3546"/>
+          <text x="105" y="146" fill="#64748b" font-size="10" font-family="monospace">9/6</text>
+          <rect x="200" y="124" width="90" height="6" rx="2" fill="#2d3546"/>
+          <text x="235" y="146" fill="#64748b" font-size="10" font-family="monospace">9/7</text>
+          <rect x="330" y="125" width="90" height="5" rx="2" fill="#2d3546"/>
+          <text x="365" y="146" fill="#64748b" font-size="10" font-family="monospace">9/8</text>
+          <rect x="460" y="126" width="90" height="4" rx="2" fill="#2d3546"/>
+          <text x="495" y="146" fill="#64748b" font-size="10" font-family="monospace">9/9</text>
+          <rect x="590" y="122" width="90" height="8" rx="2" fill="#2d3546"/>
+          <text x="625" y="146" fill="#64748b" font-size="10" font-family="monospace">9/10</text>
+          <rect x="720" y="120" width="90" height="10" rx="2" fill="#2d3546"/>
+          <text x="755" y="146" fill="#64748b" font-size="10" font-family="monospace">9/11</text>
+          <!-- Peak Amber Bar -->
+          <rect x="850" y="32" width="90" height="98" rx="3" fill="#f59e0b"/>
+          <text x="885" y="146" fill="#f59e0b" font-size="10" font-family="monospace" font-weight="bold">9/12 (今日)</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Bottom Split -->
+    <div class="dash-split">
+      <div class="split-col">
+        <div class="split-head">
+          <span>项目用量排行 TOP 4</span>
+          <span style="color: var(--text-tertiary); font-size: 11px;">Token 占比</span>
+        </div>
+        <div class="split-content">
+          <div class="rank-item">
+            <div class="rank-info">
+              <span class="rank-name">01  shop-web</span>
+              <span class="rank-nums">5.01 M  (44.0%)</span>
+            </div>
+            <div class="rank-bar-bg"><div class="rank-bar-fill" style="width: 100%;"></div></div>
+          </div>
+          <div class="rank-item">
+            <div class="rank-info">
+              <span class="rank-name">02  notes-app</span>
+              <span class="rank-nums">3.64 M  (32.0%)</span>
+            </div>
+            <div class="rank-bar-bg"><div class="rank-bar-fill" style="width: 72%;"></div></div>
+          </div>
+          <div class="rank-item">
+            <div class="rank-info">
+              <span class="rank-name">03  wiki-site</span>
+              <span class="rank-nums">1.59 M  (14.0%)</span>
+            </div>
+            <div class="rank-bar-bg"><div class="rank-bar-fill" style="width: 31%;"></div></div>
+          </div>
+          <div class="rank-item">
+            <div class="rank-info">
+              <span class="rank-name">04  cli-tools</span>
+              <span class="rank-nums">0.80 M  (7.0%)</span>
+            </div>
+            <div class="rank-bar-bg"><div class="rank-bar-fill" style="width: 16%;"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="split-col">
+        <div class="split-head">
+          <span>最近活跃会话</span>
+          <button class="btn-quick">恢复最近 5 个会话</button>
+        </div>
+        <div class="split-content">
+          <div class="sess-row">
+            <span class="sess-title">notes-app</span>
+            <span class="sess-time">18 分钟前</span>
+          </div>
+          <div class="sess-row">
+            <span class="sess-title">shop-web</span>
+            <span class="sess-time">2 小时前</span>
+          </div>
+          <div class="sess-row">
+            <span class="sess-title">wiki-site</span>
+            <span class="sess-time">20 小时前</span>
+          </div>
+          <div class="sess-row">
+            <span class="sess-title">cli-tools</span>
+            <span class="sess-time">3 天前</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

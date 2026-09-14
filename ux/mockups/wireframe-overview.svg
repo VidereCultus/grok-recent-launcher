@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" style="background:#07080a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+  <defs>
+    <linearGradient id="topLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="40%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#1e2432"/>
+    </linearGradient>
+    <linearGradient id="barGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Title / Spec Header -->
+  <text x="40" y="44" fill="#f3f5f9" font-size="20" font-weight="700">Grok Recent Launcher · UX 2.0 工业精工深色线框图</text>
+  <text x="40" y="68" fill="#64748b" font-size="12">规范：无紫色 · 无Emoji · 无AI味 · 沉浸深色 (Obsidian/Slate) · 钛金暖琥珀主色 · 毫秒级按键回弹反馈</text>
+
+  <!-- App Window Frame Container -->
+  <rect x="40" y="90" width="1120" height="670" rx="8" fill="#0c0e12" stroke="#232936" stroke-width="1.5"/>
+
+  <!-- Top Accent Bar -->
+  <rect x="40" y="90" width="1120" height="2.5" fill="url(#topLine)"/>
+
+  <!-- Window Header (H: 64px) -->
+  <rect x="40" y="92.5" width="1120" height="60" fill="#0c0e12"/>
+  <line x1="40" y1="152.5" x2="1160" y2="152.5" stroke="#1c222e" stroke-width="1"/>
+
+  <text x="64" y="130" fill="#f3f5f9" font-size="18" font-weight="600">用量</text>
+  <rect x="110" y="116" width="46" height="18" rx="3" fill="#161b24" stroke="#242c3b" stroke-width="1"/>
+  <text x="118" y="129" fill="#94a3b8" font-size="10" font-family="monospace">v1.8.1</text>
+  <text x="170" y="129" fill="#64748b" font-size="12">先看总量，再看今天，再看哪个项目吃得最多</text>
+
+  <!-- Tab Segmented Control -->
+  <rect x="880" y="108" width="256" height="34" rx="6" fill="#131720" stroke="#232936"/>
+  <!-- Sliding Pill Indicator -->
+  <rect x="883" y="111" width="60" height="28" rx="4" fill="#1e2432" stroke="#323b4e"/>
+  <text x="898" y="129" fill="#f3f5f9" font-size="12" font-weight="600">仪表盘</text>
+  <text x="962" y="129" fill="#94a3b8" font-size="12">项目</text>
+  <text x="1016" y="129" fill="#94a3b8" font-size="12">监视</text>
+  <rect x="1046" y="118" width="16" height="14" rx="7" fill="#064e3b"/>
+  <text x="1051" y="129" fill="#10b981" font-size="9" font-family="monospace">4</text>
+  <text x="1086" y="129" fill="#94a3b8" font-size="12">关于</text>
+
+  <!-- Dashboard View Wireframe -->
+  <!-- 5 KPI Cards -->
+  <!-- Card 1 Hero -->
+  <rect x="64" y="170" width="220" height="96" rx="6" fill="#151922" stroke="#f59e0b" stroke-opacity="0.35"/>
+  <text x="80" y="192" fill="#94a3b8" font-size="10" font-weight="600">近 7 天总量</text>
+  <text x="80" y="228" fill="#f59e0b" font-size="26" font-weight="700" font-family="monospace">11.38 M</text>
+  <rect x="80" y="242" width="48" height="14" rx="2" fill="#064e3b"/>
+  <text x="84" y="252" fill="#34d399" font-size="9" font-family="monospace">↑ 14.2%</text>
+  <text x="134" y="253" fill="#64748b" font-size="10">较上周同期</text>
+
+  <!-- Card 2 -->
+  <rect x="296" y="170" width="180" height="96" rx="6" fill="#131720" stroke="#232936"/>
+  <text x="312" y="192" fill="#94a3b8" font-size="10" font-weight="600">今日用量</text>
+  <text x="312" y="226" fill="#f3f5f9" font-size="22" font-weight="700" font-family="monospace">8.63 M</text>
+  <text x="312" y="252" fill="#64748b" font-size="10">进行中 · 占 75.8%</text>
+
+  <!-- Card 3 -->
+  <rect x="488" y="170" width="180" height="96" rx="6" fill="#131720" stroke="#232936"/>
+  <text x="504" y="192" fill="#94a3b8" font-size="10" font-weight="600">输入 TOKENS</text>
+  <text x="504" y="226" fill="#f3f5f9" font-size="22" font-weight="700" font-family="monospace">11.33 M</text>
+  <text x="504" y="252" fill="#64748b" font-size="10">占比 99.6%</text>
+
+  <!-- Card 4 -->
+  <rect x="680" y="170" width="180" height="96" rx="6" fill="#131720" stroke="#232936"/>
+  <text x="696" y="192" fill="#94a3b8" font-size="10" font-weight="600">输出 TOKENS</text>
+  <text x="696" y="226" fill="#f3f5f9" font-size="22" font-weight="700" font-family="monospace">0.05 M</text>
+  <text x="696" y="252" fill="#64748b" font-size="10">占比 0.4%</text>
+
+  <!-- Card 5 -->
+  <rect x="872" y="170" width="264" height="96" rx="6" fill="#131720" stroke="#232936"/>
+  <text x="888" y="192" fill="#94a3b8" font-size="10" font-weight="600">活跃规模</text>
+  <text x="888" y="226" fill="#f3f5f9" font-size="22" font-weight="700" font-family="monospace">29</text>
+  <text x="888" y="252" fill="#64748b" font-size="10">29 个会话 · 4 个活跃窗口</text>
+
+  <!-- Chart Panel -->
+  <rect x="64" y="280" width="1072" height="210" rx="6" fill="#131720" stroke="#232936"/>
+  <text x="84" y="306" fill="#f3f5f9" font-size="12" font-weight="600">Token 用量趋势</text>
+  <text x="190" y="306" fill="#64748b" font-size="11">柱高代表总量 · 悬停查看输入输出拆分</text>
+
+  <!-- Range pills -->
+  <rect x="912" y="292" width="206" height="24" rx="4" fill="#0d1017" stroke="#232936"/>
+  <text x="926" y="308" fill="#64748b" font-size="10">今天</text>
+  <rect x="956" y="294" width="48" height="20" rx="3" fill="#1a202c"/>
+  <text x="965" y="308" fill="#f59e0b" font-size="10" font-weight="600">近 7 天</text>
+  <text x="1018" y="308" fill="#64748b" font-size="10">近 30 天</text>
+  <text x="1080" y="308" fill="#64748b" font-size="10">全部</text>
+
+  <!-- SVG Bars -->
+  <line x1="110" y1="340" x2="1100" y2="340" stroke="#1c222e" stroke-dasharray="2,2"/>
+  <text x="76" y="344" fill="#64748b" font-size="9" font-family="monospace">10.0M</text>
+
+  <line x1="110" y1="390" x2="1100" y2="390" stroke="#1c222e" stroke-dasharray="2,2"/>
+  <text x="80" y="394" fill="#64748b" font-size="9" font-family="monospace">5.0M</text>
+
+  <line x1="110" y1="440" x2="1100" y2="440" stroke="#232a38"/>
+  <text x="80" y="444" fill="#64748b" font-size="9" font-family="monospace">0.0M</text>
+
+  <!-- Bars -->
+  <rect x="150" y="436" width="80" height="4" rx="2" fill="#2d3546"/>
+  <text x="178" y="456" fill="#64748b" font-size="9" font-family="monospace">9/6</text>
+
+  <rect x="290" y="434" width="80" height="6" rx="2" fill="#2d3546"/>
+  <text x="318" y="456" fill="#64748b" font-size="9" font-family="monospace">9/7</text>
+
+  <rect x="430" y="435" width="80" height="5" rx="2" fill="#2d3546"/>
+  <text x="458" y="456" fill="#64748b" font-size="9" font-family="monospace">9/8</text>
+
+  <rect x="570" y="436" width="80" height="4" rx="2" fill="#2d3546"/>
+  <text x="598" y="456" fill="#64748b" font-size="9" font-family="monospace">9/9</text>
+
+  <rect x="710" y="432" width="80" height="8" rx="2" fill="#2d3546"/>
+  <text x="738" y="456" fill="#64748b" font-size="9" font-family="monospace">9/10</text>
+
+  <rect x="850" y="430" width="80" height="10" rx="2" fill="#2d3546"/>
+  <text x="878" y="456" fill="#64748b" font-size="9" font-family="monospace">9/11</text>
+
+  <!-- Peak Bar -->
+  <rect x="990" y="348" width="80" height="92" rx="3" fill="url(#barGrad)"/>
+  <text x="1010" y="456" fill="#f59e0b" font-size="9" font-family="monospace" font-weight="700">9/12</text>
+
+  <!-- Bottom Split Section -->
+  <!-- Left: Ranking -->
+  <rect x="64" y="504" width="580" height="216" rx="6" fill="#131720" stroke="#232936"/>
+  <text x="80" y="528" fill="#f3f5f9" font-size="12" font-weight="600">项目用量排行 TOP 4</text>
+  <line x1="64" y1="540" x2="644" y2="540" stroke="#1c222e"/>
+
+  <!-- Row 1 -->
+  <text x="80" y="562" fill="#64748b" font-size="11" font-family="monospace">01</text>
+  <text x="104" y="562" fill="#f3f5f9" font-size="11" font-weight="500">shop-web</text>
+  <text x="540" y="562" fill="#94a3b8" font-size="11" font-family="monospace">5.01 M (44%)</text>
+  <rect x="80" y="570" width="544" height="4" rx="2" fill="#1c222e"/>
+  <rect x="80" y="570" width="544" height="4" rx="2" fill="#f59e0b"/>
+
+  <!-- Row 2 -->
+  <text x="80" y="598" fill="#64748b" font-size="11" font-family="monospace">02</text>
+  <text x="104" y="598" fill="#f3f5f9" font-size="11" font-weight="500">notes-app</text>
+  <text x="540" y="598" fill="#94a3b8" font-size="11" font-family="monospace">3.64 M (32%)</text>
+  <rect x="80" y="606" width="544" height="4" rx="2" fill="#1c222e"/>
+  <rect x="80" y="606" width="390" height="4" rx="2" fill="#d97706"/>
+
+  <!-- Row 3 -->
+  <text x="80" y="634" fill="#64748b" font-size="11" font-family="monospace">03</text>
+  <text x="104" y="634" fill="#f3f5f9" font-size="11" font-weight="500">wiki-site</text>
+  <text x="540" y="634" fill="#94a3b8" font-size="11" font-family="monospace">1.59 M (14%)</text>
+  <rect x="80" y="642" width="544" height="4" rx="2" fill="#1c222e"/>
+  <rect x="80" y="642" width="170" height="4" rx="2" fill="#b45309"/>
+
+  <!-- Right: Recent Sessions & Quick Stepper -->
+  <rect x="658" y="504" width="478" height="216" rx="6" fill="#131720" stroke="#232936"/>
+  <text x="674" y="528" fill="#f3f5f9" font-size="12" font-weight="600">最近活跃会话</text>
+
+  <!-- Quick Launch Button -->
+  <rect x="960" y="514" width="160" height="26" rx="4" fill="#f59e0b"/>
+  <text x="978" y="531" fill="#0c0e12" font-size="11" font-weight="700">恢复最近 5 个会话</text>
+  <line x1="658" y1="540" x2="1136" y2="540" stroke="#1c222e"/>
+
+  <!-- Sessions -->
+  <text x="674" y="566" fill="#f3f5f9" font-size="12">notes-app</text>
+  <text x="1070" y="566" fill="#64748b" font-size="11" font-family="monospace">18 分钟前</text>
+
+  <text x="674" y="600" fill="#f3f5f9" font-size="12">shop-web</text>
+  <text x="1076" y="600" fill="#64748b" font-size="11" font-family="monospace">2 小时前</text>
+
+  <text x="674" y="634" fill="#f3f5f9" font-size="12">wiki-site</text>
+  <text x="1070" y="634" fill="#64748b" font-size="11" font-family="monospace">20 小时前</text>
+
+  <text x="674" y="668" fill="#f3f5f9" font-size="12">cli-tools</text>
+  <text x="1084" y="668" fill="#64748b" font-size="11" font-family="monospace">3 天前</text>
+
+  <!-- Footer -->
+  <rect x="40" y="730" width="1120" height="30" fill="#090b0e"/>
+  <line x1="40" y1="730" x2="1160" y2="730" stroke="#1c222e"/>
+  <text x="64" y="750" fill="#64748b" font-size="10">用量来自本机 usage.json · 单位 M · 模型: grok-4.6</text>
+  <text x="860" y="750" fill="#64748b" font-size="10">双击续上 · Enter 打开 · Ctrl+A 全选 · 点 ★ 置顶</text>
+</svg>

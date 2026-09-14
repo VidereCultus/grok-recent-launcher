@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" style="background:#07080a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+  <defs>
+    <linearGradient id="topLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="40%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#1e2432"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Title -->
+  <text x="40" y="44" fill="#f3f5f9" font-size="20" font-weight="700">Grok Recent Launcher · 项目页 (Projects) 交互线框图</text>
+  <text x="40" y="68" fill="#64748b" font-size="12">特色：高对比度操作栏 · 钛金暖琥珀主操作按钮 · 快捷键提示 · 矢量星标微弹置顶 · 亚像素边框表格</text>
+
+  <!-- Container -->
+  <rect x="40" y="90" width="1120" height="670" rx="8" fill="#0c0e12" stroke="#232936" stroke-width="1.5"/>
+  <rect x="40" y="90" width="1120" height="2.5" fill="url(#topLine)"/>
+
+  <!-- Header -->
+  <rect x="40" y="92.5" width="1120" height="60" fill="#0c0e12"/>
+  <line x1="40" y1="152.5" x2="1160" y2="152.5" stroke="#1c222e" stroke-width="1"/>
+  <text x="64" y="130" fill="#f3f5f9" font-size="18" font-weight="600">最近的 Grok 项目</text>
+  <rect x="220" y="116" width="46" height="18" rx="3" fill="#161b24" stroke="#242c3b" stroke-width="1"/>
+  <text x="228" y="129" fill="#94a3b8" font-size="10" font-family="monospace">v1.8.1</text>
+  <text x="280" y="129" fill="#64748b" font-size="12">从本机会话找回目录 · 多选后一次在 Windows Terminal 打开</text>
+
+  <!-- Nav Tabs -->
+  <rect x="880" y="108" width="256" height="34" rx="6" fill="#131720" stroke="#232936"/>
+  <rect x="942" y="111" width="60" height="28" rx="4" fill="#1e2432" stroke="#323b4e"/>
+  <text x="898" y="129" fill="#94a3b8" font-size="12">仪表盘</text>
+  <text x="958" y="129" fill="#f3f5f9" font-size="12" font-weight="600">项目</text>
+  <text x="1016" y="129" fill="#94a3b8" font-size="12">监视</text>
+  <rect x="1046" y="118" width="16" height="14" rx="7" fill="#064e3b"/>
+  <text x="1051" y="129" fill="#10b981" font-size="9" font-family="monospace">4</text>
+  <text x="1086" y="129" fill="#94a3b8" font-size="12">关于</text>
+
+  <!-- Toolbar H: 50px -->
+  <rect x="40" y="153" width="1120" height="50" fill="#131720"/>
+  <line x1="40" y1="203" x2="1160" y2="203" stroke="#232936"/>
+
+  <!-- Search Box -->
+  <rect x="64" y="162" width="260" height="32" rx="4" fill="#0c0e12" stroke="#232936"/>
+  <!-- Search icon -->
+  <circle cx="80" cy="177" r="4" fill="none" stroke="#64748b" stroke-width="1.4"/>
+  <line x1="83" y1="180" x2="88" y2="185" stroke="#64748b" stroke-width="1.4"/>
+  <text x="94" y="182" fill="#64748b" font-size="11">搜索项目、路径或摘要...</text>
+  <rect x="278" y="169" width="38" height="18" rx="2" fill="#1a202c" stroke="#2d3748"/>
+  <text x="282" y="182" fill="#64748b" font-size="9" font-family="monospace">Ctrl+F</text>
+
+  <!-- Hide Missing Checkbox -->
+  <rect x="340" y="172" width="13" height="13" rx="2" fill="#131720" stroke="#475569"/>
+  <text x="360" y="183" fill="#94a3b8" font-size="11">隐藏失效</text>
+
+  <!-- Selection Chip -->
+  <line x1="430" y1="168" x2="430" y2="188" stroke="#232936"/>
+  <text x="444" y="183" fill="#f59e0b" font-size="11" font-family="monospace">已选择: shop-web</text>
+
+  <!-- Toolbar Action Buttons -->
+  <!-- Primary Button -->
+  <rect x="580" y="162" width="116" height="32" rx="4" fill="#f59e0b"/>
+  <text x="598" y="182" fill="#0c0e12" font-size="11" font-weight="700">继续最近会话</text>
+
+  <!-- Secondary Buttons -->
+  <rect x="704" y="162" width="80" height="32" rx="4" fill="#1e2432" stroke="#323e52"/>
+  <text x="722" y="182" fill="#f3f5f9" font-size="11">新建会话</text>
+
+  <rect x="792" y="162" width="86" height="32" rx="4" fill="#1e2432" stroke="#323e52"/>
+  <text x="806" y="182" fill="#f3f5f9" font-size="11">指定文件夹</text>
+
+  <rect x="886" y="162" width="76" height="32" rx="4" fill="#1e2432" stroke="#323e52"/>
+  <text x="900" y="182" fill="#f3f5f9" font-size="11">打开终端</text>
+
+  <rect x="970" y="162" width="86" height="32" rx="4" fill="#1e2432" stroke="#323e52"/>
+  <text x="982" y="182" fill="#f3f5f9" font-size="11">资源管理器</text>
+
+  <rect x="1064" y="162" width="56" height="32" rx="4" fill="#1e2432" stroke="#323e52"/>
+  <text x="1080" y="182" fill="#94a3b8" font-size="11">刷新</text>
+
+  <!-- Data Table Header -->
+  <rect x="40" y="204" width="1120" height="32" fill="#11141c"/>
+  <line x1="40" y1="236" x2="1160" y2="236" stroke="#232936"/>
+
+  <text x="80" y="225" fill="#64748b" font-size="10" font-weight="600">项目名称</text>
+  <text x="260" y="225" fill="#64748b" font-size="10" font-weight="600">上次活动</text>
+  <text x="360" y="225" fill="#64748b" font-size="10" font-weight="600">会话</text>
+  <text x="440" y="225" fill="#64748b" font-size="10" font-weight="600">最近任务摘要</text>
+  <text x="880" y="225" fill="#64748b" font-size="10" font-weight="600">物理目录</text>
+
+  <!-- Row 1 (Selected) -->
+  <rect x="40" y="237" width="1120" height="42" fill="#1d1912"/>
+  <!-- 3px Amber indicator -->
+  <rect x="40" y="237" width="3" height="42" fill="#f59e0b"/>
+  <!-- Gold Star -->
+  <path d="M60 258 L63 250 L66 258 L73 258 L68 263 L70 270 L63 266 L56 270 L58 263 L53 258 Z" fill="#f59e0b"/>
+  <text x="80" y="263" fill="#f3f5f9" font-size="12" font-weight="600">shop-web</text>
+  <text x="260" y="263" fill="#94a3b8" font-size="11" font-family="monospace">2 小时前</text>
+  <text x="360" y="263" fill="#94a3b8" font-size="11" font-family="monospace">5</text>
+  <text x="440" y="263" fill="#f3f5f9" font-size="12">Empty state for the order list and checkout flow</text>
+  <text x="880" y="263" fill="#64748b" font-size="11" font-family="monospace">D:\Work\shop-web</text>
+  <line x1="40" y1="279" x2="1160" y2="279" stroke="#232936" stroke-opacity="0.4"/>
+
+  <!-- Row 2 -->
+  <rect x="40" y="280" width="1120" height="42" fill="#0c0e12"/>
+  <!-- Outline Star -->
+  <path d="M60 300 L63 293 L66 300 L73 300 L68 305 L70 312 L63 308 L56 312 L58 305 L53 300 Z" fill="none" stroke="#64748b" stroke-width="1.2"/>
+  <text x="80" y="306" fill="#f3f5f9" font-size="12" font-weight="500">notes-app</text>
+  <text x="260" y="306" fill="#64748b" font-size="11" font-family="monospace">18 分钟前</text>
+  <text x="360" y="306" fill="#64748b" font-size="11" font-family="monospace">8</text>
+  <text x="440" y="306" fill="#94a3b8" font-size="12">Fix markdown preview scroll synchronization bug</text>
+  <text x="880" y="306" fill="#64748b" font-size="11" font-family="monospace">D:\Work\notes-app</text>
+  <line x1="40" y1="322" x2="1160" y2="322" stroke="#232936" stroke-opacity="0.3"/>
+
+  <!-- Row 3 -->
+  <rect x="40" y="323" width="1120" height="42" fill="#0c0e12"/>
+  <path d="M60 343 L63 336 L66 343 L73 343 L68 348 L70 355 L63 351 L56 355 L58 348 L53 343 Z" fill="none" stroke="#64748b" stroke-width="1.2"/>
+  <text x="80" y="349" fill="#f3f5f9" font-size="12" font-weight="500">wiki-site</text>
+  <text x="260" y="349" fill="#64748b" font-size="11" font-family="monospace">20 小时前</text>
+  <text x="360" y="349" fill="#64748b" font-size="11" font-family="monospace">3</text>
+  <text x="440" y="349" fill="#94a3b8" font-size="12">Heading anchor jump on docs with smooth scroll</text>
+  <text x="880" y="349" fill="#64748b" font-size="11" font-family="monospace">D:\Work\wiki-site</text>
+  <line x1="40" y1="365" x2="1160" y2="365" stroke="#232936" stroke-opacity="0.3"/>
+
+  <!-- Row 4 -->
+  <rect x="40" y="366" width="1120" height="42" fill="#0c0e12"/>
+  <path d="M60 386 L63 379 L66 386 L73 386 L68 391 L70 398 L63 394 L56 398 L58 391 L53 386 Z" fill="none" stroke="#64748b" stroke-width="1.2"/>
+  <text x="80" y="392" fill="#f3f5f9" font-size="12" font-weight="500">cli-tools</text>
+  <text x="260" y="392" fill="#64748b" font-size="11" font-family="monospace">3 天前</text>
+  <text x="360" y="392" fill="#64748b" font-size="11" font-family="monospace">2</text>
+  <text x="440" y="392" fill="#94a3b8" font-size="12">Add a doctor command to verify environment variables</text>
+  <text x="880" y="392" fill="#64748b" font-size="11" font-family="monospace">D:\Work\cli-tools</text>
+  <line x1="40" y1="408" x2="1160" y2="408" stroke="#232936" stroke-opacity="0.3"/>
+
+  <!-- Footer -->
+  <rect x="40" y="730" width="1120" height="30" fill="#090b0e"/>
+  <line x1="40" y1="730" x2="1160" y2="730" stroke="#1c222e"/>
+  <text x="64" y="750" fill="#64748b" font-size="10">双击续上  ·  Enter 打开  ·  文件夹 = 选路径后新开 Grok</text>
+  <text x="860" y="750" fill="#64748b" font-size="10">Ctrl+F 搜索  ·  Ctrl+A 全选  ·  点 ★ 置顶</text>
+</svg>

@@ -1,0 +1,97 @@
+:root {
+  /* ==========================================================================
+     Grok Recent Launcher - Precision Industrial Design Tokens
+     Aesthetic: Technical Minimalist / Executive CLI Console (Linear / Raycast tier)
+     Zero Purple · Zero Emoji · Zero AI Gimmicks · Zero Muddy Brown
+     ========================================================================== */
+
+  /* Surface & Background (Deep Obsidian & Slate Dark) */
+  --bg-app: #0c0e12;            /* Deep canvas background */
+  --bg-surface: #131720;        /* Card & panel background */
+  --bg-surface-hover: #1a202c;  /* Hover state background */
+  --bg-surface-active: #222938; /* Active / pressed background */
+  --bg-elevated: #1e2432;       /* Modals, tooltips, floating popups */
+  --bg-input: #0e1117;          /* Search & input boxes */
+
+  /* Borders & Dividers (Sub-pixel Crisp Borders) */
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-default: #232936;
+  --border-strong: #323b4e;
+  --border-focus: #f59e0b;      /* Technical Amber focus ring */
+
+  /* Typography Colors */
+  --text-primary: #f3f5f9;      /* Crisp high-contrast readable white */
+  --text-secondary: #94a3b8;    /* Muted label / helper text */
+  --text-tertiary: #64748b;     /* Dim / timestamp / shortcut text */
+  --text-inverse: #0c0e12;      /* For high-contrast amber buttons */
+
+  /* Technical Brand Accent (Warm Titanium Amber - Sharp, not muddy brown) */
+  --accent-primary: #f59e0b;    /* Core action & selected accent */
+  --accent-hover: #fbbf24;      /* Button hover highlight */
+  --accent-active: #d97706;     /* Button pressed / active state */
+  --accent-muted: rgba(245, 158, 11, 0.14);
+  --accent-border: rgba(245, 158, 11, 0.35);
+
+  /* Status Colors (Functional Precision) */
+  --status-working: #10b981;    /* Active running: crisp emerald */
+  --status-working-glow: rgba(16, 185, 129, 0.25);
+  --status-idle: #64748b;       /* Idle / standby: slate */
+  --status-created: #38bdf8;    /* Initialized: ice cyan */
+  --status-danger: #f43f5e;     /* Terminate / error: precision red */
+  --status-danger-hover: #fb7185;
+  --status-danger-bg: rgba(244, 63, 94, 0.12);
+
+  /* Typography Scales */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, -sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", monospace;
+  --font-display: "Segoe UI Variable Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+
+  /* Elevations & Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.6);
+  --shadow-accent: 0 0 12px rgba(245, 158, 11, 0.25);
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 9999px;
+
+  /* Motion & Easing Curves */
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+}
+
+/* Force dark color scheme to eliminate all default white browser chrome/controls */
+html {
+  color-scheme: dark;
+}
+
+/* Precision Dark Minimalist Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2d3546 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #252d3d;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #3b465c;
+}

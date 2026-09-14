@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>监视窗口 (Process Monitor) - UX 2.0 动效与可视化设计稿</title>
+  <link rel="stylesheet" href="design-tokens.css">
+  <style>
+    html { color-scheme: dark; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scrollbar-width: thin;
+      scrollbar-color: #2b3345 transparent;
+    }
+    *::-webkit-scrollbar { width: 5px; height: 5px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb {
+      background: #252d3d;
+      border-radius: 9999px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    *::-webkit-scrollbar-thumb:hover { background: #3b465c; }
+
+    body {
+      background: #060709;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      padding: 32px 24px;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .page-container {
+      width: 1060px;
+      max-width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .view-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-default);
+    }
+    .header-left {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .view-title {
+      font-size: 20px;
+      font-weight: 600;
+      font-family: var(--font-display);
+      letter-spacing: -0.02em;
+    }
+    .view-sub {
+      color: var(--text-tertiary);
+      font-size: 12px;
+    }
+
+    /* Motion & Animation Keyframes */
+    @keyframes laser-sweep {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(250%); }
+    }
+    @keyframes spin-tech {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes blink-cursor {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    @keyframes pulse-amber-glow {
+      0%, 100% { border-color: rgba(245, 158, 11, 0.35); box-shadow: 0 0 0 rgba(245, 158, 11, 0); }
+      50% { border-color: rgba(245, 158, 11, 0.85); box-shadow: 0 0 14px rgba(245, 158, 11, 0.28); }
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8); opacity: 0.8; }
+      50% { transform: scale(1.6); opacity: 0; }
+      100% { transform: scale(1.6); opacity: 0; }
+    }
+    @keyframes flow-dash {
+      to { stroke-dashoffset: -16; }
+    }
+
+    /* Summary Bar */
+    .summary-strip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+    .stats-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .range-btn {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 3px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--duration-fast);
+      outline: none;
+    }
+    .range-btn:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+    .range-btn.active {
+      background: var(--bg-surface-hover);
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+      font-weight: 600;
+    }
+
+    /* Status Dot */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--status-idle);
+      position: relative;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .status-dot.working {
+      background: var(--status-working);
+      box-shadow: 0 0 8px var(--status-working-glow);
+    }
+    .status-dot.working::after {
+      content: "";
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      border: 1.5px solid var(--status-working);
+      opacity: 0.6;
+      animation: pulse-ring 2s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+    .status-dot.created {
+      background: var(--status-created);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+    }
+
+    /* Cards List */
+    .cards-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .watch-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      position: relative;
+      transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+    }
+    .watch-card:hover {
+      border-color: var(--border-strong);
+    }
+    .watch-card.active-working {
+      border-color: rgba(16, 185, 129, 0.4);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.08);
+    }
+
+    /* Laser Shimmer Bar on Top of Active Card */
+    .card-laser-track {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      overflow: hidden;
+      background: rgba(16, 185, 129, 0.15);
+      z-index: 5;
+    }
+    .card-laser-beam {
+      width: 45%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, #10b981, #34d399, #fbbf24, transparent);
+      animation: laser-sweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    .card-head {
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      background: var(--bg-surface);
+      transition: background var(--duration-fast);
+    }
+    .card-head:hover { background: var(--bg-surface-hover); }
+
+    .card-meta-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .chevron {
+      width: 14px;
+      height: 14px;
+      fill: var(--text-tertiary);
+      transition: transform 200ms ease;
+    }
+    .watch-card.expanded .chevron {
+      transform: rotate(90deg);
+    }
+    .proc-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .badge-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+    }
+    .badge-chip.working {
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--status-working);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+    .badge-chip.idle {
+      background: rgba(100, 116, 139, 0.12);
+      color: var(--status-idle);
+      border: 1px solid rgba(100, 116, 139, 0.3);
+    }
+    .badge-chip.created {
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--status-created);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .spin-icon {
+      animation: spin-tech 1.4s linear infinite;
+    }
+
+    .sub-meta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-tertiary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Segmented Visual Context Meter */
+    .context-gauge-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #0e1117;
+      border: 1px solid var(--border-default);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .context-segmented {
+      display: flex;
+      gap: 2px;
+      height: 6px;
+      align-items: center;
+    }
+    .context-segment {
+      width: 4px;
+      height: 6px;
+      border-radius: 1px;
+      background: #1c222e;
+      transition: background 300ms ease;
+    }
+    .context-segment.filled {
+      background: var(--accent-primary);
+    }
+    .context-segment.filled-green {
+      background: var(--status-working);
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .btn {
+      height: 28px;
+      padding: 0 10px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+      transition: all var(--duration-fast);
+      outline: none;
+    }
+    .btn:hover { background: #242d3d; }
+    .btn:active { transform: translateY(1px) scale(0.97); }
+    .btn-danger {
+      background: transparent;
+      color: var(--status-danger);
+      border-color: rgba(244, 63, 94, 0.3);
+    }
+    .btn-danger:hover {
+      background: var(--status-danger-bg);
+      border-color: var(--status-danger);
+    }
+
+    /* Structured Accordion Body */
+    .watch-card-body {
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      transition: max-height 320ms var(--ease-out-quint), opacity 250ms var(--ease-out-quint);
+      background: #090b10;
+      border-top: 1px solid var(--border-subtle);
+      padding: 0 16px;
+    }
+    .watch-card.expanded .watch-card-body {
+      max-height: 520px;
+      opacity: 1;
+      padding: 14px 16px;
+    }
+
+    /* Visual Execution Pipeline Flow */
+    .pipeline-container {
+      background: #11141c;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+      overflow-x: auto;
+    }
+    .pipeline-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .pipe-node {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      background: #161b24;
+      border: 1px solid var(--border-default);
+      color: var(--text-secondary);
+      transition: all var(--duration-fast);
+    }
+    .pipe-node.done {
+      border-color: rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.08);
+    }
+    .pipe-node.active {
+      border-color: var(--accent-primary);
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.12);
+      animation: pulse-amber-glow 2s infinite ease-in-out;
+      font-weight: 600;
+    }
+    .pipe-arrow {
+      color: var(--text-tertiary);
+      display: flex;
+      align-items: center;
+    }
+    .flow-line {
+      stroke-dasharray: 4, 3;
+      animation: flow-dash 0.8s linear infinite;
+    }
+
+    /* Detail Grid: Left Task, Right Live Monospace Stream */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .detail-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .detail-section-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Live Activity Stream Terminal Console */
+    .live-console-box {
+      background: #060709;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.6;
+      color: #94a3b8;
+      height: 96px;
+      overflow-y: auto;
+    }
+    .log-line {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .log-time { color: var(--text-tertiary); }
+    .log-tag-info { color: #38bdf8; font-weight: 600; }
+    .log-tag-exec { color: #f59e0b; font-weight: 600; }
+    .log-tag-done { color: #10b981; font-weight: 600; }
+    .blinking-cursor {
+      animation: blink-cursor 0.9s infinite;
+      color: var(--accent-primary);
+      font-weight: 700;
+    }
+
+    .meta-chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-tertiary);
+      background: #11141c;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+      margin-top: 10px;
+    }
+    .meta-chip-list span {
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <div class="view-header">
+      <div class="header-left">
+        <span class="view-title">监视 Grok 进程 (Process Monitor)</span>
+        <span class="view-sub">实时捕获多智能体工具流水线、执行耗时与 Token 上下文负荷</span>
+      </div>
+      <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary);">
+        自动轮询: 1.5s · 双缓冲流畅刷新
+      </div>
+    </div>
+
+    <!-- Status Strip with Category Filter -->
+    <div class="summary-strip">
+      <div class="stats-group">
+        <span style="color: var(--text-primary); font-weight: 600;">筛选:</span>
+        <button class="range-btn active" onclick="filterWatchCards('all', this)">全部 4</button>
+        <button class="range-btn" onclick="filterWatchCards('working', this)">
+          <span class="status-dot working" style="margin-right: 4px;"></span> 工作中 1
+        </button>
+        <button class="range-btn" onclick="filterWatchCards('idle', this)">空闲 2</button>
+        <button class="range-btn" onclick="filterWatchCards('created', this)">刚创建 1</button>
+      </div>
+      <span style="color: var(--text-tertiary); font-size: 11px;">流式监控中 · 状态点：绿 = 工作中，灰 = 空闲，蓝 = 刚创建</span>
+    </div>
+
+    <!-- Process Cards List -->
+    <div class="cards-list">
+      <!-- Card 1: Working & Expanded with Live Pipeline & Motion -->
+      <div class="watch-card active-working expanded" id="proc-4101" data-kind="working">
+        <!-- Laser Shimmer Bar -->
+        <div class="card-laser-track">
+          <div class="card-laser-beam"></div>
+        </div>
+
+        <div class="card-head" onclick="toggleCard('proc-4101')">
+          <div class="card-meta-left">
+            <span class="status-dot working"></span>
+            <svg class="chevron" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            <span class="proc-title">shop-web</span>
+            <span class="badge-chip working">
+              <svg class="spin-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="9" stroke-opacity="0.25"/>
+                <path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"/>
+              </svg>
+              工作中 · search_replace
+            </span>
+            <div class="sub-meta">
+              <span>PID 4101</span>
+              <span>·</span>
+              <span id="liveTimer4101" style="color: #34d399; font-weight: 500;">已运行 04:18</span>
+              <span>·</span>
+              <!-- Segmented Visual Context Capacity Meter -->
+              <div class="context-gauge-wrap" title="Context 容量占用: 124,000 / 200,000 Tokens (62%)">
+                <span style="color: var(--text-tertiary);">Context</span>
+                <div class="context-segmented">
+                  <div class="context-segment filled-green"></div>
+                  <div class="context-segment filled-green"></div>
+                  <div class="context-segment filled-green"></div>
+                  <div class="context-segment filled"></div>
+                  <div class="context-segment filled"></div>
+                  <div class="context-segment filled"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                </div>
+                <span style="color: var(--accent-primary); font-weight: 600;">62%</span>
+                <span style="color: var(--text-tertiary); font-size: 10px;">(124K/200K)</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions" onclick="event.stopPropagation()">
+            <button class="btn" onclick="alert('已激活 shop-web 终端窗口')">打开</button>
+            <button class="btn" onclick="alert('拉起新分屏终端')">终端</button>
+            <button class="btn btn-danger" onclick="confirmKill(4101, this)">结束</button>
+          </div>
+        </div>
+
+        <!-- Structured Details Accordion Body -->
+        <div class="watch-card-body">
+          <!-- 1. Visual Execution Flow Pipeline -->
+          <div style="font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 6px; letter-spacing: 0.04em;">
+            实时调用流程节点 (EXECUTION FLOW PIPELINE)
+          </div>
+          <div class="pipeline-container">
+            <div class="pipeline-step">
+              <div class="pipe-node done">
+                <span>✓</span>
+                <span>1. 接收需求任务</span>
+              </div>
+              <div class="pipe-arrow">
+                <svg width="24" height="12" viewBox="0 0 24 12"><line x1="0" y1="6" x2="18" y2="6" stroke="#10b981" stroke-width="1.5"/><polygon points="18,3 24,6 18,9" fill="#10b981"/></svg>
+              </div>
+            </div>
+
+            <div class="pipeline-step">
+              <div class="pipe-node done">
+                <span>✓</span>
+                <span>2. read_file (12ms)</span>
+              </div>
+              <div class="pipe-arrow">
+                <svg width="24" height="12" viewBox="0 0 24 12"><line x1="0" y1="6" x2="18" y2="6" stroke="#10b981" stroke-width="1.5"/><polygon points="18,3 24,6 18,9" fill="#10b981"/></svg>
+              </div>
+            </div>
+
+            <div class="pipeline-step">
+              <div class="pipe-node done">
+                <span>✓</span>
+                <span>3. ripgrep_search (24ms)</span>
+              </div>
+              <div class="pipe-arrow">
+                <svg width="24" height="12" viewBox="0 0 24 12"><line class="flow-line" x1="0" y1="6" x2="18" y2="6" stroke="#f59e0b" stroke-width="1.5"/><polygon points="18,3 24,6 18,9" fill="#f59e0b"/></svg>
+              </div>
+            </div>
+
+            <div class="pipeline-step">
+              <div class="pipe-node active">
+                <svg class="spin-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <circle cx="12" cy="12" r="9" stroke-opacity="0.25"/>
+                  <path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"/>
+                </svg>
+                <span>4. search_replace (正则重构中 · 142ms)</span>
+              </div>
+              <div class="pipe-arrow">
+                <svg width="24" height="12" viewBox="0 0 24 12"><line x1="0" y1="6" x2="18" y2="6" stroke="#475569" stroke-width="1.5" stroke-dasharray="3,3"/><polygon points="18,3 24,6 18,9" fill="#475569"/></svg>
+              </div>
+            </div>
+
+            <div class="pipeline-step">
+              <div class="pipe-node" style="opacity: 0.5;">
+                <span>⋯</span>
+                <span>5. 终端验证</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Split: Task Info & Live Terminal Activity Stream -->
+          <div class="detail-grid">
+            <div class="detail-section">
+              <span class="detail-section-title">任务上下文与目标</span>
+              <div style="background: #11141c; border: 1px solid var(--border-default); border-radius: 4px; padding: 10px 12px; font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
+                <div><strong style="color: var(--text-primary);">标题：</strong>Empty state for the order list</div>
+                <div><strong style="color: var(--text-primary);">摘要：</strong>正在修改订单为空时的状态展示逻辑，注入无障碍无序列表并补齐 SVG 图标。</div>
+                <div style="margin-top: 6px; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 10px;">
+                  目标文件: src/components/OrderList.vue (lines 52-89)
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-section">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="detail-section-title">实时执行控制台流 (LIVE STREAM)</span>
+                <span style="font-size: 10px; font-family: var(--font-mono); color: #10b981;">● 实时流式捕获中</span>
+              </div>
+              <div class="live-console-box" id="liveConsoleStream">
+                <div class="log-line"><span class="log-time">[10:06:40]</span> <span class="log-tag-info">INIT</span> <span>会话已绑定目录 D:\Work\shop-web (PID 4101)</span></div>
+                <div class="log-line"><span class="log-time">[10:06:44]</span> <span class="log-tag-done">TOOL</span> <span>read_file: 读取 src/components/OrderList.vue (248 行, 12ms)</span></div>
+                <div class="log-line"><span class="log-time">[10:06:48]</span> <span class="log-tag-done">TOOL</span> <span>ripgrep: 检索 empty-state 关联引用 (3 matches, 24ms)</span></div>
+                <div class="log-line"><span class="log-time">[10:06:52]</span> <span class="log-tag-exec">EXEC</span> <span style="color: #f59e0b;">search_replace: 正在应用局部代码替换与无障碍补丁...</span> <span class="blinking-cursor">▌</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Specs Chips -->
+          <div class="meta-chip-list">
+            <div>模型: <span>grok-4.6</span></div>
+            <div>累计调用: <span>18 次工具</span></div>
+            <div>对话回合: <span>4 轮</span></div>
+            <div>累计消耗: <span>1.24 M Tokens</span></div>
+            <div>工作目录: <span style="font-family: var(--font-mono);">D:\Work\shop-web</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Created -->
+      <div class="watch-card" id="proc-4102" data-kind="created">
+        <div class="card-head" onclick="toggleCard('proc-4102')">
+          <div class="card-meta-left">
+            <span class="status-dot created"></span>
+            <svg class="chevron" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            <span class="proc-title">notes-app</span>
+            <span class="badge-chip created">刚创建 · 就绪</span>
+            <div class="sub-meta">
+              <span>PID 4102</span>
+              <span>·</span>
+              <span>等待首条指令</span>
+              <span>·</span>
+              <span>已运行 00:32</span>
+              <span>·</span>
+              <div class="context-gauge-wrap" title="Context 容量占用: 2,400 / 200,000 Tokens (1%)">
+                <span style="color: var(--text-tertiary);">Context</span>
+                <div class="context-segmented">
+                  <div class="context-segment filled-green"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                </div>
+                <span style="color: #10b981; font-weight: 600;">1%</span>
+                <span style="color: var(--text-tertiary); font-size: 10px;">(2.4K/200K)</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions" onclick="event.stopPropagation()">
+            <button class="btn" onclick="alert('已激活 notes-app 终端窗口')">打开</button>
+            <button class="btn" onclick="alert('拉起新分屏终端')">终端</button>
+            <button class="btn btn-danger" onclick="confirmKill(4102, this)">结束</button>
+          </div>
+        </div>
+
+        <div class="watch-card-body">
+          <div class="detail-section">
+            <span class="detail-section-title">会话详情</span>
+            <div style="background: #11141c; border: 1px solid var(--border-default); border-radius: 4px; padding: 10px 12px; font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
+              <div><strong style="color: var(--text-primary);">状态：</strong>进程已在后台就绪，工作树环境已就绪，未收到新提示词。</div>
+              <div><strong style="color: var(--text-primary);">会话路径：</strong>~/.grok/sessions/2026-09-12-notes-app.json</div>
+            </div>
+          </div>
+          <div class="meta-chip-list">
+            <div>模型: <span>grok-4.6</span></div>
+            <div>累计调用: <span>0 次工具</span></div>
+            <div>对话回合: <span>0 轮</span></div>
+            <div>累计消耗: <span>2,400 Tokens</span></div>
+            <div>工作目录: <span style="font-family: var(--font-mono);">D:\Work\notes-app</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Idle & Collapsed -->
+      <div class="watch-card" id="proc-4103" data-kind="idle">
+        <div class="card-head" onclick="toggleCard('proc-4103')">
+          <div class="card-meta-left">
+            <span class="status-dot"></span>
+            <svg class="chevron" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            <span class="proc-title">wiki-site</span>
+            <span class="badge-chip idle">空闲 · 等待回复</span>
+            <div class="sub-meta">
+              <span>PID 4103</span>
+              <span>·</span>
+              <span>上一轮：这一轮已经写完</span>
+              <span>·</span>
+              <span>已运行 18 分钟</span>
+              <span>·</span>
+              <div class="context-gauge-wrap" title="Context 容量占用: 88,000 / 200,000 Tokens (44%)">
+                <span style="color: var(--text-tertiary);">Context</span>
+                <div class="context-segmented">
+                  <div class="context-segment filled-green"></div>
+                  <div class="context-segment filled-green"></div>
+                  <div class="context-segment filled-green"></div>
+                  <div class="context-segment filled"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                  <div class="context-segment"></div>
+                </div>
+                <span style="color: var(--accent-primary); font-weight: 600;">44%</span>
+                <span style="color: var(--text-tertiary); font-size: 10px;">(88K/200K)</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions" onclick="event.stopPropagation()">
+            <button class="btn" onclick="alert('已激活 wiki-site 终端窗口')">打开</button>
+            <button class="btn" onclick="alert('拉起新分屏终端')">终端</button>
+            <button class="btn btn-danger" onclick="confirmKill(4103, this)">结束</button>
+          </div>
+        </div>
+
+        <div class="watch-card-body">
+          <div class="detail-section">
+            <span class="detail-section-title">会话详情</span>
+            <div style="background: #11141c; border: 1px solid var(--border-default); border-radius: 4px; padding: 10px 12px; font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
+              <div><strong style="color: var(--text-primary);">上一轮目标：</strong>已完成侧边栏文档目录树递归渲染及暗色高亮切换。</div>
+              <div><strong style="color: var(--text-primary);">最近工具：</strong>write_file, ripgrep_search (耗时 320ms)</div>
+            </div>
+          </div>
+          <div class="meta-chip-list">
+            <div>模型: <span>grok-4.6</span></div>
+            <div>累计调用: <span>36 次工具</span></div>
+            <div>对话回合: <span>8 轮</span></div>
+            <div>累计消耗: <span>880,000 Tokens</span></div>
+            <div>工作目录: <span style="font-family: var(--font-mono);">D:\Work\wiki-site</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function toggleCard(cardId) {
+      const card = document.getElementById(cardId);
+      card.classList.toggle('expanded');
+    }
+
+    function filterWatchCards(kind, btn) {
+      btn.parentElement.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const cards = document.querySelectorAll('.watch-card');
+      cards.forEach(card => {
+        if (kind === 'all' || card.dataset.kind === kind) {
+          card.style.display = 'block';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+
+    function confirmKill(pid, btn) {
+      if (confirm(`确定要结束 PID ${pid} 的 Grok 进程吗？`)) {
+        const card = document.getElementById(`proc-${pid}`);
+        card.style.opacity = '0.3';
+        card.style.pointerEvents = 'none';
+        btn.textContent = '已终止';
+      }
+    }
+
+    // Live Runtime Counter
+    let liveSeconds = 258;
+    setInterval(() => {
+      liveSeconds++;
+      const m = String(Math.floor(liveSeconds / 60)).padStart(2, '0');
+      const s = String(liveSeconds % 60).padStart(2, '0');
+      const el = document.getElementById('liveTimer4101');
+      if (el) el.textContent = `已运行 ${m}:${s}`;
+    }, 1000);
+
+    // Live Stream Generator
+    const sampleLogs = [
+      { tag: 'PATCH', cls: 'log-tag-done', text: 'src/components/OrderList.vue 局部重构应用成功 (+14, -6 lines)' },
+      { tag: 'EXEC', cls: 'log-tag-exec', text: 'run_command: npm run test:unit (执行前置用例与无障碍断言...)' },
+      { tag: 'TEST', cls: 'log-tag-done', text: 'OrderList.spec.ts: 4 tests passed, 0 failures (192ms)' },
+      { tag: 'TOOL', cls: 'log-tag-done', text: 'read_file: 检查 router/index.ts 路由映射表 (68 行, 8ms)' },
+      { tag: 'EXEC', cls: 'log-tag-exec', text: 'search_replace: 更新路由元信息与面包屑导航数据...' },
+      { tag: 'SYNC', cls: 'log-tag-info', text: '保存检查点 (git staging clean, context: 125.8K / 200K)' },
+      { tag: 'DONE', cls: 'log-tag-done', text: '当前步骤通过校验，准备输出任务摘要与代码走查' }
+    ];
+    let logIndex = 0;
+    setInterval(() => {
+      const consoleBox = document.getElementById('liveConsoleStream');
+      if (!consoleBox) return;
+
+      const oldCursor = consoleBox.querySelector('.blinking-cursor');
+      if (oldCursor) oldCursor.remove();
+
+      const item = sampleLogs[logIndex % sampleLogs.length];
+      logIndex++;
+
+      const now = new Date();
+      const timeStr = `[${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}]`;
+
+      const div = document.createElement('div');
+      div.className = 'log-line';
+      div.innerHTML = `<span class="log-time">${timeStr}</span> <span class="${item.cls}">${item.tag}</span> <span>${item.text}</span> <span class="blinking-cursor">▌</span>`;
+
+      consoleBox.appendChild(div);
+      consoleBox.scrollTop = consoleBox.scrollHeight;
+    }, 3800);
+  </script>
+</body>
+</html>
