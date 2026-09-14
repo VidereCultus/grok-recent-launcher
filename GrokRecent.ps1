@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:AppVersion = '1.8.0'
+$script:AppVersion = '1.8.1'
 if ($Version) {
     Write-Output $script:AppVersion
     exit 0
@@ -1159,6 +1159,33 @@ if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     exit 0
 }
 
+function Show-ExistingLauncherWindow {
+    if (-not ('NativeWnd' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativeWnd {
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+'@
+    }
+    $hwnd = [IntPtr]::Zero
+    for ($i = 0; $i -lt 6; $i++) {
+        $hwnd = [NativeWnd]::FindWindow($null, 'Grok 最近项目')
+        if ($hwnd -ne [IntPtr]::Zero) { break }
+        Start-Sleep -Milliseconds 200
+    }
+    if ($hwnd -eq [IntPtr]::Zero) { return $false }
+    [void][NativeWnd]::ShowWindow($hwnd, 9)
+    [void][NativeWnd]::SetForegroundWindow($hwnd)
+    return $true
+}
+
 try {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -1206,6 +1233,15 @@ public static class UiUtil {
 
     $script:config = Read-LauncherConfig
     $script:allProjects = @()
+    $script:instanceMutex = $null
+    if (-not $script:ScreenshotMode) {
+        $createdNew = $false
+        $script:instanceMutex = New-Object System.Threading.Mutex($true, 'Local\GrokRecentLauncher.single', [ref]$createdNew)
+        if (-not $createdNew) {
+            [void](Show-ExistingLauncherWindow)
+            exit 0
+        }
+    }
 
     $bg = [System.Drawing.Color]::FromArgb(14, 14, 12)
     $panel = [System.Drawing.Color]::FromArgb(26, 24, 21)
@@ -2871,6 +2907,11 @@ public static class UiUtil {
             $scanTimer.Stop(); $spinTimer.Stop()
             foreach ($info in @($script:watchCards.Values)) {
                 if ($info.Contains('Pic') -and $info.Pic -and $info.Pic.Image) { $info.Pic.Image.Dispose() }
+            }
+            if ($script:instanceMutex) {
+                try { $script:instanceMutex.ReleaseMutex() } catch { }
+                try { $script:instanceMutex.Dispose() } catch { }
+                $script:instanceMutex = $null
             }
         })
 
