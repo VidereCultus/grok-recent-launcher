@@ -714,14 +714,19 @@ function Get-SessionActivity {
             $o = $null
             try { $o = $t | ConvertFrom-Json } catch { continue }
             if (-not $o) { continue }
-            $typ = [string]$o.type
-            $nm = [string]$o.tool_name
+            $names = @()
+            try { $names = @($o.PSObject.Properties.Name) } catch { continue }
+            $typ = ''
+            $nm = ''
+            if ($names -contains 'type') { $typ = [string]$o.type }
+            if ($names -contains 'tool_name') { $nm = [string]$o.tool_name }
             if ([string]::IsNullOrWhiteSpace($nm)) { continue }
             if ($typ -eq 'tool_started') {
                 $open.Add($nm)
             } elseif ($typ -eq 'tool_completed') {
                 if ($open.Count -gt 0) { $open.RemoveAt($open.Count - 1) }
-                $outc = [string]$o.outcome
+                $outc = ''
+                if ($names -contains 'outcome') { $outc = [string]$o.outcome }
                 if ($outc) { $recent.Add("$nm · $outc") } else { $recent.Add($nm) }
             }
         }
@@ -816,7 +821,10 @@ function Find-LatestSessionForCwd {
             if ($sum -and $sum.PSObject.Properties.Name -contains 'last_turn_summary' -and $sum.last_turn_summary) {
                 $detail = Sanitize-Title ([string]$sum.last_turn_summary)
             }
-            $act = Get-SessionActivity $sessionDir.FullName
+            $act = $null
+            try { $act = Get-SessionActivity $sessionDir.FullName } catch {
+                $act = @{ CurrentTool = $null; Recent = @(); TokenM = ''; Model = ''; ModelCalls = 0 }
+            }
             $sid = $sessionDir.Name
             $model = [string]$act.Model
             if (-not $model -and $sig -and $sig.primaryModelId) { $model = [string]$sig.primaryModelId }
