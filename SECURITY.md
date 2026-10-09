@@ -1,6 +1,6 @@
 # Security
 
-This is a **local-only** Windows helper. It does not talk to the network.
+This is a Windows helper. Most pages stay on disk. The dashboard quota strip is the only network call.
 
 ## What it reads
 
@@ -9,9 +9,10 @@ This is a **local-only** Windows helper. It does not talk to the network.
   - generated title / session summary
   - timestamps
 - The Watch page also reads local `grok.exe` process IDs, working directories, `updates.jsonl` timestamps, and `signals.json` context usage. It does not read chat transcripts.
-- The Dashboard sums `usage.json` token totals (shown in millions) and timestamps. It does not call the network or read `auth.json`.
+- The Dashboard sums `usage.json` token totals (shown in millions) and timestamps.
+- Account quota on the home page reads `~\.grok\auth.json` **in memory** to call `cli-chat-proxy.grok.com/v1/billing`. Tokens are never written to this repo, the quota cache, or the error log.
 
-It does **not** open `chat_history.jsonl`, `updates.jsonl`, `system_prompt.txt`, auth files, or `~\.grok\auth.json`.
+It does **not** open `chat_history.jsonl` or `system_prompt.txt`.
 
 ## What it writes
 
@@ -20,6 +21,8 @@ Preferences (pinned folders, “hide missing”) go to:
 ```
 %APPDATA%\GrokRecentLauncher\config.json
 ```
+
+Quota numbers (percent used, reset time, plan label — never tokens) go to `quota-cache.json` in the same folder.
 
 Crash traces go to `last-error.log` in the same folder. Both stay on the machine. They are gitignored if a copy ever appears next to the scripts.
 

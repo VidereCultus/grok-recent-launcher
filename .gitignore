@@ -1,5 +1,6 @@
 # Local machine state — never commit
 config.json
+quota-cache.json
 last-error.log
 debug.log
 debug.err.log
@@ -7,6 +8,7 @@ docs/shot.log
 docs/shot.err.log
 docs/dash-trace.txt
 docs/last-ui-error.txt
+docs/layout-check.json
 *.lnk
 
 # OS

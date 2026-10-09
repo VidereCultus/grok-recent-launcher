@@ -12,6 +12,10 @@ Write-Host 'GREEN: parses'
 
 $want = @(
     'ConvertTo-ProcessArgumentString'
+    'ConvertTo-GrokProxyEndpoint'
+    'Get-LauncherConfigObject'
+    'Get-GrokProxyEndpoint'
+    'Build-GrokProxyInnerCommand'
     'Build-WtNewTabArgumentString'
     'Test-SamePath'
     'Get-GrokExe'
@@ -44,6 +48,21 @@ Write-Host 'GREEN: continue args reuse last window as a tab'
 $s2 = Build-WtNewTabArgumentString -Projects @($proj) -Mode 'new' -GrokExe 'C:\g\grok.exe'
 if ($s2 -match '(^|\s)-c(\s|$)') { throw 'new session should not pass -c' }
 Write-Host 'GREEN: new session args have no -c'
+
+$s3 = Build-WtNewTabArgumentString -Projects @($proj) -Mode 'continue' -GrokExe 'C:\Users\Administrator\.grok\bin\grok.exe' -UseProxy
+Write-Host ('PROXY ARGS: ' + $s3)
+if ($s3 -notmatch 'cmd.exe') { throw 'proxy launch should use cmd.exe' }
+if ($s3 -notmatch '/c') { throw 'proxy launch should use cmd /c' }
+if ($s3 -match 'grok-with-proxy') { throw 'proxy launch must not exec the .cmd wrapper via WT' }
+if ($s3 -notmatch 'HTTP_PROXY=http://127.0.0.1:7890') { throw 'proxy launch missing HTTP_PROXY' }
+if ($s3 -notmatch 'grok.exe') { throw 'proxy launch missing grok.exe' }
+if ($s3 -notmatch '-c') { throw 'proxy continue should still pass grok -c' }
+if ($s3 -notmatch '"D:\\Work\\shop web"') { throw 'proxy path with space should be quoted' }
+Write-Host 'GREEN: proxy continue uses cmd /c around grok.exe'
+
+$s4 = Build-WtNewTabArgumentString -Projects @($proj) -Mode 'new' -GrokExe 'C:\g\grok.exe' -UseProxy
+if ($s4 -match ' -c') { throw 'proxy new session should not pass grok -c' }
+Write-Host 'GREEN: proxy new session has no grok -c'
 
 $desk = Join-Path $env:USERPROFILE 'Desktop'
 $live = Get-RunningGrokForPath $desk

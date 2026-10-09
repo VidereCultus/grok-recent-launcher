@@ -25,9 +25,9 @@ Windows 小工具：从本机 Grok 会话记录里找回用过的项目目录，
 - **文件夹** = 选择任意路径后新开 Grok（不是只打开资源管理器）
 - **终端**；右键可「打开文件夹」用资源管理器打开
 - **监视**页：看当前多开的 Grok 窗口。刚创建 / 进行中 / 刚完成 / 空闲用不同图标
-- **仪表盘**（启动首页）：总 Token 是主指标（含输入/输出占比）；趋势图可悬停看当日明细和较昨日；项目用量排行；「恢复 N 个项目」
+- **仪表盘**（启动首页）：账号周额度；总 Token 是主指标（含输入/输出占比）；趋势图可悬停看当日明细和较昨日；项目用量排行；「恢复 N 个会话」
 - 搜索、置顶、右键菜单
-- 无联网；偏好存在 `%APPDATA%\GrokRecentLauncher\`
+- 偏好存在 `%APPDATA%\GrokRecentLauncher\`
 
 ## 要求
 
@@ -56,8 +56,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\GrokRecent.ps1 -Version
 ## 隐私
 
 - 只读本机 `~\.grok\sessions\**\summary.json` 的目录、标题、时间
-- **不读取** 对话全文、工具日志、`auth.json`、密钥
-- **不联网、不上传**
+- **不读取** 对话全文、工具日志、密钥
+- 首页额度用本机已登录的 Grok CLI 向 xAI billing 查询；凭证只留在内存，不写进仓库或日志
 - 置顶名单只保存在本机 AppData，已加入 `.gitignore`
 
 详见 [SECURITY.md](SECURITY.md)。
@@ -84,9 +84,9 @@ The screenshot above uses fictional sample rows (`D:\Work\shop-web`, etc.), not 
 - **Folder** browses any path and starts a new Grok session there
 - Terminal-only; Explorer is on the right-click menu
 - **Watch** page: live Grok windows with created / working / done / idle icons
-- **Dashboard** (home): token usage in millions (M) by time range, one-click launch of the N most recent folders
+- **Dashboard** (home): weekly account quota, token usage in millions (M) by time range, one-click launch of the N most recent sessions
 - Search, pins, context menu
-- Offline. Pins live in `%APPDATA%\GrokRecentLauncher\`
+- Pins live in `%APPDATA%\GrokRecentLauncher\`
 
 ## Requirements
 
@@ -108,7 +108,7 @@ powershell -STA -NoProfile -ExecutionPolicy Bypass -File .\GrokRecent.ps1
 
 ## Privacy
 
-Reads only `summary.json` under `~\.grok\sessions` (cwd, title, timestamps). It does not upload data, and it does not open chat transcripts or credentials.
+Reads local `summary.json` under `~\.grok\sessions` (cwd, title, timestamps). The home-page quota strip reads `~\.grok\auth.json` in memory to query xAI billing; tokens are never written to this repo, the quota cache, or the error log. Chat transcripts stay closed.
 
 ## License
 
